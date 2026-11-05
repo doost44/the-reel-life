@@ -45,6 +45,7 @@ export class FaceVoice {
   playClip(url, desire) {
     const word = this.word;
     this.context ??= new AudioContext();
+    this.context.resume().catch(() => {}); // made before the page was clicked, it stays silent until resumed
     const audio = new Audio(url);
     audio.volume = Math.min(1, 0.6 + 0.4 * desire);
     const analyser = this.context.createAnalyser();

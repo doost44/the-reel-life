@@ -59,7 +59,12 @@ ffmpeg must be on PATH: the eye uses it to read the cameras' names. MediaPipe (f
 ```
 
 This starts the eye and opens the editor at http://localhost:8765/editor. Press Ctrl+C to stop.
-`.\run.ps1 -OpenScreens` also opens every screen that has a monitor, fullscreen.
+`.\run.ps1 -OpenScreens` also opens every screen that has a monitor, fullscreen, with sound allowed. Use this for
+the show.
+
+https://doost44.github.io/the-reel-life/ has links to the prototype. GitHub Pages can't run it (it needs the eye,
+the cameras and the phone detection), so those links only work on the computer running the eye. A screen opened
+from a link stays silent until it's clicked once.
 
 ## The journey
 

@@ -1,0 +1,150 @@
+<!doctype html>
+<!-- The Reel Life's GitHub Pages site. Pages only serves files, so this page
+     doesn't run the prototype: its links open the prototype on the exhibit
+     computer, where the eye (Python) runs the cameras and the visit. -->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>The Reel Life</title>
+  <meta name="description" content="A live exhibit about watching reels. This page opens the prototype on the exhibit computer.">
+  <style>
+    :root {
+      --bg: #08090b;
+      --glass: rgba(20, 22, 26, 0.68);
+      --raised: rgba(255, 255, 255, 0.06);
+      --raised-hover: rgba(255, 255, 255, 0.11);
+      --sunken: rgba(0, 0, 0, 0.28);
+      --stroke: rgba(255, 255, 255, 0.08);
+      --stroke-strong: rgba(255, 255, 255, 0.18);
+      --text: #eef0f3;
+      --muted: rgba(238, 240, 243, 0.62);
+      --hot: #ff9f43;
+      --sans: "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+      --mono: "Cascadia Mono", Consolas, monospace;
+      color-scheme: dark;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      display: grid;
+      place-items: center;
+      padding: 40px 16px;
+      background:
+        radial-gradient(60rem 36rem at 50% -10%, rgba(255, 159, 67, 0.13), transparent 70%),
+        var(--bg);
+      color: var(--text);
+      font: 15px/1.55 var(--sans);
+      -webkit-font-smoothing: antialiased;
+    }
+
+    main { width: min(560px, 100%); }
+
+    h1 {
+      margin: 0 0 12px;
+      font-size: clamp(38px, 9vw, 56px);
+      font-weight: 300;
+      line-height: 1.05;
+      letter-spacing: -0.02em;
+    }
+
+    .about {
+      margin: 0 0 32px;
+      max-width: 46ch;
+      color: var(--muted);
+      font-size: 17px;
+    }
+
+    .card {
+      padding: 22px;
+      border: 1px solid var(--stroke);
+      border-radius: 20px;
+      background: var(--glass);
+    }
+
+    .card + .card { margin-top: 14px; }
+
+    h2 { margin: 0 0 8px; font-size: 15px; font-weight: 600; }
+    p { margin: 0; }
+    .card p { color: var(--muted); }
+    .card p + p { margin-top: 12px; }
+
+    .button {
+      display: block;
+      padding: 12px 18px;
+      border: 1px solid var(--stroke-strong);
+      border-radius: 999px;
+      background: var(--raised);
+      color: var(--text);
+      font-weight: 500;
+      text-align: center;
+      text-decoration: none;
+      transition: background 120ms ease;
+    }
+
+    .button:hover { background: var(--raised-hover); }
+    .button:focus-visible { outline: 2px solid var(--hot); outline-offset: 2px; }
+
+    .button.primary {
+      padding: 15px 18px;
+      border-color: transparent;
+      background: var(--text);
+      color: var(--bg);
+      font-size: 16px;
+      font-weight: 600;
+    }
+
+    .button.primary:hover { background: #fff; }
+
+    .more {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+      margin: 10px 0 16px;
+    }
+
+    code {
+      display: block;
+      margin: 12px 0;
+      padding: 11px 14px;
+      overflow-x: auto;
+      border-radius: 12px;
+      background: var(--sunken);
+      color: var(--text);
+      font: 14px/1.4 var(--mono);
+      white-space: nowrap;
+    }
+
+    footer { margin-top: 18px; color: var(--muted); font-size: 13px; }
+    footer a { color: inherit; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>The Reel Life</h1>
+    <p class="about">A live exhibit about watching reels. Put your phone on the platform and watch with something that has never seen one.</p>
+
+    <section class="card" aria-labelledby="open-heading">
+      <h2 id="open-heading" hidden>Open the prototype</h2>
+      <a class="button primary" href="http://localhost:8765/screen/reelface">Open the prototype</a>
+      <div class="more">
+        <a class="button" href="http://localhost:8765/look">Look</a>
+        <a class="button" href="http://localhost:8765/editor">Setup</a>
+      </div>
+      <p>Click the prototype once after it opens, so the browser lets it speak.</p>
+    </section>
+
+    <section class="card" aria-labelledby="start-heading">
+      <h2 id="start-heading">Start it on the exhibit computer first</h2>
+      <p>The prototype runs on that computer, with its cameras, so these buttons only work there. In the project folder, run:</p>
+      <code>.\run.ps1 -OpenScreens</code>
+      <p>That also opens the exhibit fullscreen on its monitor with sound on, so no click is needed. Use this for the show.</p>
+    </section>
+
+    <footer><a href="https://github.com/doost44/the-reel-life">Source on GitHub</a></footer>
+  </main>
+</body>
+</html>
