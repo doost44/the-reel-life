@@ -42,6 +42,7 @@ import re
 import secrets
 import socket
 import subprocess
+import sys
 import time
 import webbrowser
 from pathlib import Path
@@ -65,7 +66,9 @@ HOTSPOT_ADDRESS = "192.168.137.1"  # this computer, when it runs Windows' mobile
 STILL_MOST_BYTES = 8 * 1024 * 1024
 
 WEB = settings.ROOT / "web"
-BROWSER_PROFILES = Path(os.environ.get("LOCALAPPDATA", Path.home())) / "TheReelLife" / "browser-profiles"
+_APP_DATA = (Path.home() / "Library" / "Application Support" if sys.platform == "darwin"
+             else Path(os.environ.get("LOCALAPPDATA", Path.home())))
+BROWSER_PROFILES = _APP_DATA / "TheReelLife" / "browser-profiles"
 
 
 def _valid_zone(zone: object) -> list | None:
@@ -586,5 +589,6 @@ def run(port: int | None = None, open_editor: bool = False, open_screens: bool =
     app.on_cleanup.append(eye.stop)
 
     print(f"The Reel Life eye is running. Editor: http://localhost:{port}/editor  (Ctrl+C to stop)")
-    print(f"Cameras found: {', '.join(eye.devices) or 'none (is ffmpeg installed?)'}")
+    missing = "none (is the camera allowed? See README.md)" if sys.platform == "darwin" else "none (is ffmpeg installed?)"
+    print(f"Cameras found: {', '.join(eye.devices) or missing}")
     web.run_app(app, host="127.0.0.1", port=port, print=None)

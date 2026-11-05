@@ -15,7 +15,7 @@ print("Cameras (OpenCV number: name)")
 for index, name in enumerate(names):
     print(f"  {index}: {name}")
 if not names:
-    print("  none found. Is ffmpeg installed and on PATH?")
+    print("  none found. Is the camera allowed? (Mac)" if sys.platform == "darwin" else "  none found. Is ffmpeg installed and on PATH?")
 
 print("\nMonitors")
 for monitor in monitors.list_monitors():

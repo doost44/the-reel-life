@@ -11,6 +11,7 @@ from __future__ import annotations
 import re
 import shutil
 import subprocess
+import sys
 import threading
 import time
 from pathlib import Path
@@ -23,6 +24,12 @@ from .settings import ROOT
 CLIP_PREFIX = "clip: "
 CLIP_FOLDERS = [ROOT / "recordings", ROOT / "tests" / "clips"]
 _NO_CONSOLE = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+MAC = sys.platform == "darwin"
+_BACKEND = {"win32": cv2.CAP_DSHOW, "darwin": cv2.CAP_AVFOUNDATION}.get(sys.platform, cv2.CAP_ANY)
+
+if MAC:
+    import objc
+    from AVFoundation import AVCaptureDevice, AVMediaTypeMuxed, AVMediaTypeVideo
 
 
 def list_cameras() -> list[str]:
@@ -31,6 +38,8 @@ def list_cameras() -> list[str]:
     OpenCV opens cameras by number and can't tell us their names; ffmpeg can.
     Both ask DirectShow for the same list, so the positions match.
     """
+    if MAC:
+        return _list_mac_cameras()
     ffmpeg = shutil.which("ffmpeg")
     if not ffmpeg:
         return []
@@ -40,6 +49,20 @@ def list_cameras() -> list[str]:
         creationflags=_NO_CONSOLE, timeout=15,
     )
     return re.findall(r'"([^"]+)" \(video\)', result.stderr)
+
+
+def _list_mac_cameras() -> list[str]:
+    """On a Mac, OpenCV numbers the cameras after sorting them by their unique
+    IDs (cap_avfoundation_mac.mm) and ffmpeg doesn't sort them, so their lists
+    don't match. Ask AVFoundation the way OpenCV does instead."""
+    with objc.autorelease_pool():
+        if AVCaptureDevice.authorizationStatusForMediaType_(AVMediaTypeVideo) == 0:  # not asked yet
+            # macOS asks the person once, for the app this runs in (Terminal).
+            AVCaptureDevice.requestAccessForMediaType_completionHandler_(AVMediaTypeVideo, lambda _allowed: None)
+        devices = [*AVCaptureDevice.devicesWithMediaType_(AVMediaTypeVideo),
+                   *AVCaptureDevice.devicesWithMediaType_(AVMediaTypeMuxed)]
+        devices.sort(key=lambda device: str(device.uniqueID()))
+        return [str(device.localizedName()) for device in devices]
 
 
 def list_clips() -> list[str]:
@@ -54,14 +77,15 @@ def list_sources() -> list[str]:
 
 
 def open_capture(index: int, mode: dict) -> cv2.VideoCapture:
-    capture = cv2.VideoCapture(index, cv2.CAP_DSHOW)
+    capture = cv2.VideoCapture(index, _BACKEND)
     capture.set(cv2.CAP_PROP_FRAME_WIDTH, mode["width"])
     capture.set(cv2.CAP_PROP_FRAME_HEIGHT, mode["height"])
     capture.set(cv2.CAP_PROP_FPS, mode["fps"])
     # Exposure: None leaves it automatic. A number fixes it, in DirectShow's
     # steps: -5 is 1/32 s, -7 is 1/128 s. Shorter keeps a bright phone screen
     # from washing out, blurs swipes less, and lets a webcam keep its full
-    # frame rate in a dim room. Not every camera honours it.
+    # frame rate in a dim room. Not every camera honours it, and on a Mac
+    # OpenCV can't set it at all: there it stays automatic.
     if mode.get("exposure") is None:
         capture.set(cv2.CAP_PROP_AUTO_EXPOSURE, 0.75)
     else:

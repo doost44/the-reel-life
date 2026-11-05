@@ -62,6 +62,34 @@ This starts the eye and opens the editor at http://localhost:8765/editor. Press 
 `.\run.ps1 -OpenScreens` also opens every screen that has a monitor, fullscreen, with sound allowed. Use this for
 the show.
 
+### On a Mac
+
+The same, in Terminal (install [uv](https://docs.astral.sh/uv/) first, e.g. `brew install uv`):
+
+```bash
+uv venv --python 3.14 ~/.venvs/reel-life
+uv pip install --python ~/.venvs/reel-life/bin/python -r requirements.txt
+```
+
+```bash
+./run.sh
+```
+
+`./run.sh --open-screens` is the show version. A Mac reads the cameras' names from macOS itself, so it doesn't
+need ffmpeg (only `tools/` uses it, to convert recordings: `brew install ffmpeg`). Also:
+
+* **Camera permission.** The first time, macOS asks whether Terminal (or whatever app you ran `./run.sh` from)
+  may use the camera. Allow it; the cameras connect a few seconds later. If you missed the question, turn it on in
+  System Settings › Privacy & Security › Camera and restart the eye.
+* **Chrome or Edge** must be in Applications for screens to open on their monitors. Otherwise set `browser.path`
+  in `config.yaml` (the `.app` is enough).
+* **Monitors** are new names on a Mac, so pick each screen's monitor again in the editor. Leave System Settings ›
+  Desktop & Dock › "Displays have separate Spaces" on, or a fullscreen screen blanks the other monitors.
+* **Exposure** can't be fixed on a Mac (OpenCV can't set it there); the cameras stay on automatic exposure.
+* **The QR code**: there's no Mobile hotspot, so use venue Wi-Fi or a travel router, and if the code points at
+  the wrong address, set `still.host` in `config.yaml` to the Mac's address on that network (System Settings ›
+  Wi-Fi › Details). macOS may ask to let Python accept incoming connections: allow it.
+
 https://doost44.github.io/the-reel-life/ has links to the prototype. GitHub Pages can't run it (it needs the eye,
 the cameras and the phone detection), so those links only work on the computer running the eye. A screen opened
 from a link stays silent until it's clicked once.
