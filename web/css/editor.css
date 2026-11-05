@@ -1,0 +1,173 @@
+/* The setup editor, like a small OBS: screens and their sources on glass
+   panels either side of a live preview. The look is ui.css's. */
+
+body {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 12px;
+  padding: 12px 14px 14px;
+}
+
+main {
+  display: grid;
+  grid-template-columns: 300px minmax(0, 1fr) 300px;
+  gap: 12px;
+  min-height: 0;
+}
+
+/* Panels */
+
+.panel { display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
+.panel-body { flex: 1; min-height: 0; overflow-y: auto; }
+.tabs { display: flex; margin: 12px 12px 2px; }
+.tabs > * { flex: 1; }
+
+section { padding: 14px 16px; border-bottom: 1px solid var(--stroke); }
+section:last-child { border-bottom: 0; }
+section:empty { display: none; }
+
+h2 {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 0 0 10px;
+  font-size: 13px;
+  font-weight: 400;
+}
+.small-link { color: var(--muted); font-size: 12px; text-decoration: none; }
+.small-link:hover { color: var(--text); }
+
+.field { display: grid; grid-template-columns: 92px minmax(0, 1fr); align-items: center; gap: 8px; margin: 7px 0; }
+.field > span { color: var(--muted); font-size: 12px; }
+.pair { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.triple { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px; }
+.button-row { margin: 10px 0; }
+.states { display: flex; flex-wrap: wrap; gap: 4px 12px; }
+.states label { display: flex; align-items: center; gap: 5px; font-size: 12px; }
+
+/* Visit */
+
+.oracle-line { margin: 10px 2px 0; color: var(--muted); font-style: italic; }
+.oracle-line:empty { display: none; }
+.stats { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: end; gap: 16px; margin-bottom: 10px; }
+.stats .stat-value { font-size: 38px; }
+.slider-row { display: grid; grid-template-columns: 50px minmax(0, 1fr) 76px auto; align-items: center; gap: 8px; margin: 4px 0; }
+.slider-value { font: 12px var(--mono); }
+
+/* Lists: screens and sources */
+
+.list { list-style: none; margin: 0; padding: 0; }
+.list li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  border-radius: 12px;
+  cursor: pointer;
+}
+.list li:hover { background: var(--raised); }
+.list li.selected { background: var(--raised-hover); box-shadow: inset 0 0 0 1px var(--stroke-strong); }
+.list li.hidden-item .name { color: var(--faint); text-decoration: line-through; }
+.list .name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.list .meta { color: var(--muted); font-size: 11px; white-space: nowrap; }
+.list .live {
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: rgba(255, 69, 58, 0.16);
+  color: var(--bad);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+}
+.list .icon { padding: 0 3px; border: 0; background: none; color: var(--faint); font-size: 11px; }
+.list .icon:hover { color: var(--text); background: none; }
+
+/* Cameras */
+
+.camera-list { max-height: 360px; overflow-y: auto; padding-right: 4px; }
+.camera-list h3 { margin: 12px 0 4px; font-size: 12px; font-weight: 400; color: var(--muted); }
+.device-list { list-style: none; margin: 0; padding: 0; }
+.device-list li { display: flex; align-items: center; gap: 8px; padding: 5px 2px; border-bottom: 1px solid var(--stroke); }
+.device-list .name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.device-list .meta { color: var(--muted); font-size: 11px; }
+
+.camera-card {
+  margin: 8px 0;
+  padding: 10px 12px;
+  border-radius: 14px;
+  background: var(--sunken);
+  border: 1px solid var(--stroke);
+}
+.camera-card .title { display: flex; justify-content: space-between; gap: 6px; margin-bottom: 8px; }
+.camera-card .title strong { font-weight: 400; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.camera-card label { color: var(--muted); font-size: 11px; }
+.camera-card .exposure { display: grid; grid-template-columns: auto 1fr; align-items: center; gap: 8px; margin-top: 8px; }
+.status { font-size: 11px; white-space: nowrap; }
+.status.ok { color: var(--ok); }
+.status.warn { color: var(--warn); }
+.status.bad { color: var(--bad); }
+
+/* Preview */
+
+.workspace {
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) auto;
+  min-width: 0;
+  min-height: 0;
+  border: 1px solid var(--stroke);
+  border-radius: var(--radius);
+  background: radial-gradient(rgba(255, 255, 255, 0.07) 1px, transparent 1px) 0 0 / 22px 22px, rgba(0, 0, 0, 0.3);
+  overflow: hidden;
+}
+#preview { position: relative; margin: 16px; overflow: hidden; }
+.hint { margin: 0 16px 12px; color: var(--faint); font-size: 12px; text-align: center; }
+
+/* Selection overlay, inside the scaled stage. --unit is one screen pixel on
+   the editor's display, so outlines and handles stay the same size. */
+
+.overlay { position: absolute; inset: 0; cursor: default; }
+.overlay .outline {
+  position: absolute;
+  outline: var(--unit) dashed rgba(255, 255, 255, 0.25);
+  pointer-events: none;
+}
+.overlay .outline.selected {
+  outline: calc(var(--unit) * 2) solid var(--accent);
+  pointer-events: auto;
+  cursor: move;
+}
+.overlay .handle {
+  position: absolute;
+  width: calc(var(--unit) * 11);
+  height: calc(var(--unit) * 11);
+  margin: calc(var(--unit) * -5.5) 0 0 calc(var(--unit) * -5.5);
+  border: calc(var(--unit) * 2) solid #0b0c0e;
+  border-radius: 50%;
+  background: var(--accent);
+}
+.overlay.picking { cursor: crosshair; }
+.overlay .corner-mark {
+  position: absolute;
+  width: calc(var(--unit) * 22);
+  height: calc(var(--unit) * 22);
+  margin: calc(var(--unit) * -11) 0 0 calc(var(--unit) * -11);
+  border-radius: 50%;
+  background: var(--accent);
+  color: #0b0c0e;
+  font: 700 calc(var(--unit) * 13) / calc(var(--unit) * 22) "Segoe UI", sans-serif;
+  text-align: center;
+  pointer-events: none;
+}
+.overlay .guide { position: absolute; background: #ff2a6d; pointer-events: none; }
+
+/* Narrower windows */
+
+@media (max-width: 1280px) {
+  main { grid-template-columns: 262px minmax(0, 1fr) 262px; }
+  .topbar .stat-label { display: none; }
+}
+@media (max-width: 1000px) {
+  .brand span { display: none; }
+  #preview-stage > * { padding: 5px 9px; }
+}

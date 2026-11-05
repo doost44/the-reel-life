@@ -1,0 +1,252 @@
+/* The Reel Life's tools (the look editor and the setup editor): dark glass
+   over the live picture. Cards are frosted glass with the participant's face
+   blurred behind them; numbers are big and light; every control is a pill.
+   The exhibit's screens don't use this. */
+
+:root {
+  --bg: #08090b;
+  --glass: rgba(20, 22, 26, 0.68);
+  --glass-solid: rgba(24, 26, 31, 0.94);
+  --raised: rgba(255, 255, 255, 0.06);
+  --raised-hover: rgba(255, 255, 255, 0.11);
+  --sunken: rgba(0, 0, 0, 0.28);
+  --stroke: rgba(255, 255, 255, 0.08);
+  --stroke-strong: rgba(255, 255, 255, 0.18);
+  --text: #eef0f3;
+  --muted: rgba(238, 240, 243, 0.58);
+  --faint: rgba(238, 240, 243, 0.32);
+  --accent: #ffffff;
+  --hot: #ff9f43;
+  --ok: #34d17a;
+  --bad: #ff453a;
+  --warn: #ffb020;
+  --radius: 20px;
+  --radius-small: 12px;
+  --sans: "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+  --mono: "Cascadia Mono", Consolas, monospace;
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+
+html, body {
+  margin: 0;
+  height: 100%;
+  color: var(--text);
+  font: 13px/1.45 var(--sans);
+  -webkit-font-smoothing: antialiased;
+}
+html { background: var(--bg); }
+body { background: transparent; } /* so the backdrop, behind it, shows */
+
+a { color: inherit; }
+code { font-family: var(--mono); font-size: 12px; color: var(--text); }
+
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.12); border-radius: 8px; }
+::-webkit-scrollbar-track { background: transparent; }
+
+/* The participant's face, blurred far out, behind everything (backdrop.js
+   blurs it small; here it's only stretched and dimmed, which costs nothing). */
+.backdrop {
+  position: fixed;
+  inset: -80px;
+  z-index: -1;
+  width: calc(100% + 160px);
+  height: calc(100% + 160px);
+  object-fit: cover;
+  filter: brightness(0.38) saturate(0.75);
+  opacity: 0;
+  transition: opacity 1.2s ease;
+}
+.backdrop.on { opacity: 1; }
+
+/* Glass: translucent over the already blurred backdrop. (A live backdrop
+   blur on every card cost a laptop's GPU too much under the moving face.) */
+
+.glass {
+  background: var(--glass);
+  border: 1px solid var(--stroke);
+  border-radius: var(--radius);
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.32), inset 0 1px 0 rgba(255, 255, 255, 0.04);
+}
+
+.card { padding: 16px 18px; }
+.card-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 0 0 10px;
+  font-size: 13px;
+  font-weight: 400;
+  color: var(--text);
+}
+.card-title .aside { color: var(--muted); font-size: 12px; }
+
+/* The top bar: brand, the two tools, the eye's connection. */
+
+.topbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px 8px 18px;
+  border-radius: 999px;
+}
+.brand { margin: 0; font-size: 13px; font-weight: 600; letter-spacing: 0.14em; white-space: nowrap; }
+.brand span { margin-left: 6px; color: var(--muted); font-weight: 300; letter-spacing: 0.02em; }
+.spacer { flex: 1; }
+
+/* Pills: chips, buttons, tabs */
+
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 4px 11px;
+  border-radius: 999px;
+  background: var(--raised);
+  color: var(--muted);
+  font-size: 12px;
+  white-space: nowrap;
+}
+.pill.ok, .pill.bad { color: var(--text); }
+.pill.ok::before, .pill.bad::before { content: ""; width: 7px; height: 7px; border-radius: 50%; }
+.pill.ok::before { background: var(--ok); box-shadow: 0 0 8px var(--ok); }
+.pill.bad::before { background: var(--bad); box-shadow: 0 0 8px var(--bad); }
+
+.dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--faint); flex: none; }
+.dot.ok { background: var(--ok); box-shadow: 0 0 10px var(--ok); }
+.dot.bad { background: var(--bad); box-shadow: 0 0 10px var(--bad); }
+.dot.hot { background: var(--hot); box-shadow: 0 0 10px var(--hot); }
+
+button, input, select, textarea { font: inherit; color: inherit; }
+
+button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 6px 14px;
+  border: 1px solid var(--stroke);
+  border-radius: 999px;
+  background: var(--raised);
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+button:hover { background: var(--raised-hover); border-color: var(--stroke-strong); }
+button:disabled { opacity: 0.4; cursor: default; }
+button.primary { background: var(--accent); border-color: var(--accent); color: #0b0c0e; font-weight: 600; }
+button.primary:hover { background: #dfe2e6; }
+button.danger:hover { border-color: var(--bad); color: var(--bad); }
+button.small { padding: 3px 11px; font-size: 12px; }
+button.ghost { background: transparent; border-color: transparent; color: var(--muted); }
+button.ghost:hover { color: var(--text); background: var(--raised); }
+button.on { background: var(--text); border-color: var(--text); color: #0b0c0e; }
+button.recording { color: var(--bad); border-color: var(--bad); font-weight: 600; }
+
+.segmented {
+  display: inline-flex;
+  gap: 2px;
+  padding: 3px;
+  border-radius: 999px;
+  background: var(--sunken);
+  border: 1px solid var(--stroke);
+}
+.segmented > * {
+  padding: 5px 13px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--muted);
+  text-decoration: none;
+  font-size: 12px;
+}
+.segmented > *:hover { background: var(--raised); color: var(--text); }
+.segmented > .active, .segmented > .active:hover { background: var(--text); color: #0b0c0e; }
+
+/* Fields */
+
+input, select, textarea {
+  width: 100%;
+  padding: 5px 10px;
+  border: 1px solid var(--stroke);
+  border-radius: 10px;
+  background: var(--sunken);
+  outline: none;
+}
+input:focus, select:focus, textarea:focus { border-color: var(--stroke-strong); }
+select option { background: #1a1c20; }
+input[type="checkbox"] { width: 16px; height: 16px; accent-color: var(--text); }
+input[type="color"] { padding: 2px; height: 28px; cursor: pointer; }
+textarea { resize: vertical; min-height: 52px; }
+
+input[type="range"] {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+}
+input[type="range"]::-webkit-slider-runnable-track { height: 3px; border-radius: 3px; background: rgba(255, 255, 255, 0.16); }
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 14px;
+  height: 14px;
+  margin-top: -5.5px;
+  border-radius: 50%;
+  background: var(--text);
+  box-shadow: 0 0 0 4px rgba(255, 255, 255, 0.08);
+}
+input[type="range"]:disabled { opacity: 0.35; }
+
+/* Big, light numbers, like a dashboard */
+
+.stat-label { color: var(--muted); font-size: 12px; }
+.stat-value { font-size: 44px; font-weight: 300; line-height: 1.05; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
+.stat-value small { font-size: 0.42em; color: var(--muted); letter-spacing: 0; }
+.stat-value .dim { color: var(--faint); }
+
+.mini-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.mini-value { font-size: 20px; font-weight: 300; font-variant-numeric: tabular-nums; }
+.mini-value small { color: var(--muted); font-size: 12px; }
+
+/* Status tiles: a dot and a word, like Online / Offline */
+.tiles { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.tile {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: var(--radius-small);
+  background: var(--sunken);
+  border: 1px solid var(--stroke);
+}
+.tile-value { font-size: 14px; }
+
+.button-row { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
+.note { margin: 6px 0; color: var(--muted); font-size: 12px; }
+.readout { margin: 0 0 6px; font: 12px/1.6 var(--mono); color: var(--muted); white-space: pre-line; }
+
+/* A row of reels, one box each, like a punchcard: formed filled, waiting hollow. */
+.punchcard { display: flex; flex-wrap: wrap; gap: 3px; min-height: 12px; }
+.punchcard i { width: 7px; height: 12px; border-radius: 2px; background: var(--text); opacity: 0.85; }
+.punchcard i.waiting { background: transparent; box-shadow: inset 0 0 0 1px var(--faint); }
+
+#toast {
+  position: fixed;
+  left: 50%;
+  bottom: 28px;
+  z-index: 50;
+  transform: translateX(-50%);
+  max-width: min(560px, calc(100% - 32px));
+  padding: 10px 18px;
+  border: 1px solid var(--stroke-strong);
+  border-radius: 14px;
+  background: var(--glass-solid);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.5);
+}

@@ -1,0 +1,116 @@
+# The Reel Life: settings you edit by hand.
+#
+# Screen layouts, which camera each source shows, the detection camera and
+# which monitor each screen opens on are set in the editor
+# (http://localhost:8765/editor) and saved to setup.json, not here.
+
+server:
+  port: 8765
+
+cameras:
+  # Used for the first layout, when there's no setup.json yet.
+  default_device: "USB3 Video"
+  # Preview frames sent to the editor and the screens. The swipe detector
+  # (from Phase 3) reads full frames directly and isn't limited by these.
+  preview_fps: 30
+  preview_max_width: 960
+  jpeg_quality: 80
+  # A frame this flat (largest per-colour standard deviation) that is also
+  # black or the converter's blue "no input" screen counts as no signal.
+  no_signal_flatness: 6
+  # How long to wait before trying a missing or dropped camera again.
+  reconnect_seconds: 2
+
+detection:
+  # Finding the phone at any angle: a lit area with four straight edges and
+  # a dark bezel just outside them. Lock its position in the editor once the
+  # phone sits in a cradle; then none of these matter.
+  min_screen_brightness: 45   # 0-255, in each pixel's strongest colour: the lowest level tried
+  min_area: 0.01              # fraction of the camera picture
+  max_area: 0.6
+  min_edge_support: 0.55      # share of the outline that must look like a screen edge (lit inside, dark bezel outside)
+  max_bezel_brightness: 100   # just outside the screen is darker than this
+  min_screen_fill: 0.35       # share of the middle that must be lit (an outlined box isn't a screen)
+  search_seconds: 0.25        # when not tracking, search the whole picture this often (searching is slow)
+  hold_seconds: 1.5           # keep the last outline this long when it can't be seen
+  # The phone area counts as a screen (not the empty mat) when it's brighter
+  # than this on average, or has more texture than this.
+  screen_brightness: 50
+  screen_texture: 22
+  # Turn the straightened screen (0, 90, 180 or 270) if swiping to the next
+  # reel shows up as "back" in the debug view.
+  rotate: 0
+  # Movement, in fractions of the phone screen's height.
+  min_step: 0.012             # less movement between two frames than this is noise or the video itself
+  min_response: 0.05          # how clearly the whole screen moved (phase correlation); below this is ignored
+  swipe_travel: 0.35          # a swipe has moved the screen at least this far
+  min_follow_through: 0.08    # ...and this far besides its biggest single-frame jump (a scene cut is one jump)
+  max_swipe_seconds: 0.5      # ...within this long of starting (slower is a hand moving the phone)
+  refractory_seconds: 0.3     # no new swipe this soon after the last one landed (that's it settling)
+  settle_frames: 3            # still frames that end a swipe...
+  still_clarity: 0.35         # ...measured at least this clearly (blurred mid-swipe frames read as still)
+
+# The visit, as a journey (eye/journey.py): nobody there, a face seen ("I see
+# you."), the faceless oracle speaking, then the phone on the platform and the
+# face forming from the reels watched. All the oracle's words are here.
+journey:
+  burst_seconds: 2.5          # the energy bursts to life on its own, before the oracle speaks
+  line_seconds: 4.5           # each of the oracle's lines stays this long
+  place_after: 1.5            # the phone on the platform this long: placed
+  leave_after: 10             # nobody there and no phone this long: the visit is over, and everything made of it is wiped
+  ask_patience: 25            # no reels this long after asking: "download it"
+  download_patience: 90       # ...and still none this long after that: "then leave"
+  becomes_seconds: 3          # the climax: the face becoming the person
+  becomes: 0.85               # how far it becomes them: 1 is only their picture, less keeps the reels under the skin
+  fracture_seconds: 1.4       # ...then fracturing, quickly, with the scream
+  dark_seconds: 3             # dark, before their face comes back
+  still_seconds: 45           # their face and the code to take it away stay this long, or until they've gone
+  rest_seconds: 10            # dark again before anyone can start a new visit
+  restart_after: 30           # someone who never left only starts again after this long
+  oracle:
+    place: ["Place your phone on the platform to begin."]
+    ask: ["I have never seen an Instagram reel.", "Will you watch some with me?"]
+    begin: ["Thank you."]
+    download: ["You do not have it?", "Download it. I will wait."]
+    leave: ["Then leave."]
+
+# Their still at the end. It's held in memory for a few minutes, and the code leads to a page only
+# phones on the same network can reach, with a link nobody could guess. Windows may ask to allow this.
+still:
+  port: 8766                  # the only thing on this computer that other devices can reach
+  host: ""                    # this computer's address on that network; empty finds it (the hotspot's first)
+  keep_seconds: 300           # the still is deleted after this long, or as soon as a new visit starts
+
+# The reel face (eye/reel_face.py, eye/formation.py, web/js/reelface.js): the
+# participant's face, tracked live on the face camera, formed tile by tile out
+# of the reels they watch. Held in memory for one visit; nothing is saved.
+reel_face:
+  # With no face camera chosen, this clip plays instead, labelled on screen as test tracking.
+  test_face_clip: "faces/bored.mp4"
+  min_watch_seconds: 1.2      # a reel counts if watched at least this long, not just scrolled past
+  sample_seconds: 0.3         # how often a still of the phone screen is taken while a reel plays
+  stills_per_reel: 3
+  reel_seconds: 6             # one reel's fragments arrive over this long, however many there are (half that when reels pile up)
+  queue_tiles: 6              # the next reel is planned once fewer than this many tiles wait
+  desire_cap: 1.0             # desire rises with the face, to the climax
+  # The face speaks for the participant, in the first person, wanting more. Its mouth moves
+  # with the words, not with theirs; its eyes and head stay theirs.
+  voice:
+    speak_from: 0.04          # it starts once the face is this far formed
+    words:                    # by desire: the first list early and faint, the last when it's most desiring
+      - ["more"]
+      - ["again", "one more"]
+      - ["don't stop", "more, more"]
+    gap_seconds: [7, 2.5]     # between words: with no desire, and at full (more insistent as it rises)
+    clips: "voice"            # recorded words (more.wav, again.wav, dont-stop.wav...) play instead of the computer's voice when there
+  # How far the face has got (eye/distortion.py): progress runs from 0 to 1, mostly with the
+  # reels watched (full at full_at_reels), partly with the seconds watched (full at
+  # full_at_seconds). How it looks along the way is set in the look editor (/look).
+  distortion:
+    full_at_reels: 30
+    full_at_seconds: 180
+
+browser:
+  # Chrome or Edge, for opening screens fullscreen on their monitors.
+  # Leave empty to find it automatically.
+  path: ""

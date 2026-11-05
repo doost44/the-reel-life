@@ -1,0 +1,41 @@
+/* The stage: shared by the editor's preview and the fullscreen screens. */
+
+.stage {
+  position: absolute;
+  left: 0;
+  top: 0;
+  overflow: hidden;
+  transform-origin: 0 0;
+}
+
+.stage-items,
+.stage-item {
+  position: absolute;
+}
+
+.stage-items {
+  inset: 0;
+}
+
+canvas.stage-item {
+  display: block;
+}
+
+.text-source {
+  display: flex;
+  align-items: center;
+  white-space: pre-wrap;
+  line-height: 1.05;
+  overflow: hidden;
+}
+
+/* The oracle: only words, typed out, plain and flat. */
+.oracle-source {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  white-space: pre-wrap;
+  line-height: 1.15;
+  letter-spacing: 0.06em;
+  overflow: hidden;
+}

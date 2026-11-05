@@ -1,0 +1,290 @@
+{
+  "detection_camera": "USB2.0 HD UVC WebCam",
+  "cameras": {
+    "USB3 Video": {
+      "width": 720,
+      "height": 480,
+      "fps": 60
+    },
+    "Logi C270 HD WebCam": {
+      "width": 640,
+      "height": 480,
+      "fps": 30,
+      "exposure": null
+    },
+    "USB2.0 HD UVC WebCam": {
+      "width": 720,
+      "height": 480,
+      "fps": 60,
+      "exposure": null
+    }
+  },
+  "screens": [
+    {
+      "id": "crt",
+      "name": "CRT",
+      "width": 1024,
+      "height": 768,
+      "background": "#000000",
+      "monitor": "",
+      "items": [
+        {
+          "id": "crt-feed",
+          "type": "camera",
+          "name": "Camcorder",
+          "visible": true,
+          "x": 0,
+          "y": 0,
+          "w": 1024,
+          "h": 768,
+          "camera": "USB3 Video",
+          "fit": "stretch",
+          "vhs": false,
+          "crop": {
+            "top": 0,
+            "right": 0,
+            "bottom": 0,
+            "left": 0
+          }
+        },
+        {
+          "id": "camera-mvzrazfa",
+          "type": "camera",
+          "name": "Camera 2",
+          "visible": true,
+          "x": 0,
+          "y": 0,
+          "w": 1024,
+          "h": 768,
+          "camera": "Logi C270 HD WebCam",
+          "fit": "cover",
+          "vhs": true,
+          "crop": {
+            "top": 0,
+            "right": 0,
+            "bottom": 0,
+            "left": 0
+          }
+        }
+      ]
+    },
+    {
+      "id": "reelface",
+      "name": "Reel face",
+      "width": 1920,
+      "height": 1080,
+      "background": "#b4b1ab",
+      "monitor": "\\\\.\\DISPLAY5",
+      "sound": true,
+      "climax": false,
+      "items": [
+        {
+          "id": "reel-face",
+          "type": "reelface",
+          "name": "Reel face",
+          "visible": true,
+          "x": 0,
+          "y": 0,
+          "w": 1920,
+          "h": 1080,
+          "background": "#b4b1ab",
+          "shade": 60,
+          "turn": 35,
+          "size": 56,
+          "font": "Arial Black",
+          "color": "#141414",
+          "fades": false
+        },
+        {
+          "id": "oracle",
+          "type": "oracle",
+          "name": "Oracle",
+          "visible": true,
+          "x": 160,
+          "y": 950,
+          "w": 1600,
+          "h": 100,
+          "size": 44,
+          "font": "Consolas",
+          "color": "#141414",
+          "align": "center",
+          "speak": true,
+          "states": [
+            "awake",
+            "asking",
+            "forming"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "operator",
+      "name": "Operator",
+      "width": 1280,
+      "height": 720,
+      "background": "#000000",
+      "monitor": "",
+      "sound": true,
+      "items": [
+        {
+          "id": "operator-detection",
+          "type": "detection",
+          "name": "Detection view",
+          "visible": true,
+          "x": 0,
+          "y": 0,
+          "w": 1280,
+          "h": 720
+        }
+      ]
+    }
+  ],
+  "detection_zone": null,
+  "face_camera": "Logi C270 HD WebCam",
+  "look": {
+    "values": {
+      "energy_size": [
+        2.73,
+        1.45
+      ],
+      "energy_pull": [
+        1.5,
+        1
+      ],
+      "energy_mix": [
+        0.85,
+        0.85
+      ],
+      "energy_crumble": [
+        0.8,
+        0.5
+      ],
+      "energy_shed": [
+        1,
+        1
+      ],
+      "energy_flow": [
+        1,
+        1
+      ],
+      "energy_spread": [
+        2,
+        0.3
+      ],
+      "energy_colour": [
+        1,
+        1
+      ],
+      "energy_glow": [
+        2,
+        0
+      ],
+      "fragments": [
+        16,
+        9
+      ],
+      "fragment_size": [
+        0.27,
+        0.51
+      ],
+      "jagged": [
+        1,
+        0.04
+      ],
+      "faint": [
+        0.62,
+        0
+      ],
+      "likeness": [
+        0.66,
+        1
+      ],
+      "findable": [
+        0,
+        1
+      ],
+      "melt": [
+        0.06,
+        0
+      ],
+      "flow": [
+        0.06,
+        0
+      ],
+      "flow_speed": [
+        0,
+        0.09
+      ],
+      "flow_scale": [
+        0,
+        0
+      ],
+      "block": [
+        2,
+        2
+      ],
+      "mosh": [
+        0.21,
+        0
+      ],
+      "pixelate": [
+        5,
+        6
+      ],
+      "jpeg": [
+        0.68,
+        0.56
+      ],
+      "stretch": [
+        0,
+        0
+      ],
+      "bleed": [
+        1,
+        0.76
+      ],
+      "gloss": [
+        0.35,
+        0.15
+      ],
+      "heat": [
+        0.14,
+        0.31
+      ],
+      "flush": [
+        0.89,
+        0.55
+      ],
+      "fracture": [
+        1,
+        0.02
+      ],
+      "holes": [
+        1,
+        0
+      ],
+      "drip": [
+        0,
+        0
+      ],
+      "hair": [
+        1,
+        1
+      ],
+      "hair_fragments": [
+        10,
+        10
+      ],
+      "hair_size": [
+        0.4,
+        0.03
+      ],
+      "hair_likeness": [
+        1,
+        0.7
+      ]
+    },
+    "background": "#000000",
+    "presets": {}
+  }
+}

@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Reel Face Look</title>
+  <link rel="stylesheet" href="/css/stage.css">
+  <link rel="stylesheet" href="/css/ui.css">
+  <link rel="stylesheet" href="/css/look.css">
+</head>
+<body>
+  <div id="preview" title="Drag across the face to move through its formation · scroll to nudge · double-click: back to auto"></div>
+  <div id="scrub-hint" class="pill" hidden></div>
+  <div id="solo-tag" class="pill" hidden></div>
+
+  <header class="topbar glass">
+    <h1 class="brand">THE REEL LIFE<span>look</span></h1>
+    <nav class="segmented"><a class="active" href="/look">Look</a><a href="/editor">Setup</a></nav>
+    <span class="spacer"></span>
+    <button id="held" class="small" hidden title="Back to the visit's own progress"></button>
+    <span id="connection" class="pill">connecting…</span>
+  </header>
+
+  <aside id="left">
+    <section class="glass card">
+      <div class="card-title">Visit <span id="stage-pill" class="pill"><span class="dot"></span><span>waiting…</span></span></div>
+      <div class="camera-row">
+        <canvas id="camera-view" width="224" height="168" title="What the face camera sees, live: only here, never on the exhibit's screens"></canvas>
+        <div>
+          <div class="stat-label">Face camera</div>
+          <select id="face-camera" title="The camera facing the participant"></select>
+          <div id="camera-status" class="camera-status"></div>
+        </div>
+      </div>
+      <div class="tiles">
+        <div class="tile"><span id="face-dot" class="dot"></span><div><div class="stat-label">Face</div><div id="face-state" class="tile-value">none</div></div></div>
+        <div class="tile"><span id="phone-dot" class="dot"></span><div><div class="stat-label">Phone</div><div id="phone-state" class="tile-value">not placed</div></div></div>
+      </div>
+      <div class="button-row">
+        <button id="place-phone" class="small" title="As if the phone were on the platform; press again to leave it to the tracker">Phone placed</button>
+        <button id="test-reels" class="small" title="Five made-up reels (once the phone is placed)">+5 reels</button>
+        <button id="climax-now" class="small" title="Take this visit straight to the climax: the face becomes them, fractures, goes dark, and comes back with its code">Climax</button>
+        <button id="clear-face" class="small ghost" title="Drop the reels so far, so new fragments are cut with the settings as they are now">Clear face</button>
+        <button id="reset" class="small ghost danger" title="Everything wiped: back to nobody there">Reset</button>
+      </div>
+    </section>
+
+    <section class="glass card">
+      <div class="card-title">Desire <span id="said" class="aside"></span></div>
+      <div id="desire" class="stat-value">0<small>%</small></div>
+      <div class="mini-stats">
+        <div><div class="stat-label">Reels</div><div id="reels" class="mini-value">0</div></div>
+        <div><div class="stat-label">Fragments</div><div id="fragments" class="mini-value">0</div></div>
+        <div><div class="stat-label">Covered</div><div id="covered" class="mini-value">0%</div></div>
+      </div>
+      <div id="punchcard" class="punchcard" title="One per reel: filled when formed, hollow while waiting"></div>
+    </section>
+
+    <section class="glass card">
+      <div class="card-title">Looks
+        <span>
+          <button id="defaults" class="small ghost" title="Every setting back to how it started (saved looks are kept)">Defaults</button>
+          <button id="preset-save" class="small" title="Keep this look under a name">Save as…</button>
+        </span>
+      </div>
+      <div id="presets" class="chips"></div>
+      <div class="card-title spaced">Background</div>
+      <div id="swatches" class="swatches"></div>
+    </section>
+  </aside>
+
+  <aside id="right" class="glass">
+    <nav id="group-tabs" class="segmented"></nav>
+    <p id="group-note" class="note"></p>
+    <div id="settings"></div>
+    <p id="help" class="help"></p>
+  </aside>
+
+  <section id="timeline" class="glass">
+    <div class="timeline-side">
+      <div class="stat-label">Formation</div>
+      <div id="formed" class="stat-value">0<small>%</small></div>
+      <div id="formed-mode" class="note">auto</div>
+      <button id="auto" class="small" hidden>Back to auto</button>
+    </div>
+    <div class="chart-box"><canvas id="chart" title="Drag to move through the face's formation · double-click: back to auto"></canvas></div>
+  </section>
+
+  <div id="toast" hidden></div>
+  <script type="module" src="/js/look.js"></script>
+</body>
+</html>

@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Reel Life Setup</title>
+  <link rel="stylesheet" href="/css/stage.css">
+  <link rel="stylesheet" href="/css/ui.css">
+  <link rel="stylesheet" href="/css/editor.css">
+</head>
+<body>
+  <header class="topbar glass">
+    <h1 class="brand">THE REEL LIFE<span>setup</span></h1>
+    <nav class="segmented"><a href="/look">Look</a><a class="active" href="/editor">Setup</a></nav>
+    <span class="spacer"></span>
+    <span class="stat-label">Preview</span>
+    <div id="preview-stage" class="segmented" title="Which stage of the journey the preview shows">
+      <button type="button" data-stage="" class="active">Live</button>
+      <button type="button" data-stage="empty">Nobody</button>
+      <button type="button" data-stage="awake">Awake</button>
+      <button type="button" data-stage="asking">Asking</button>
+      <button type="button" data-stage="forming">Forming</button>
+    </div>
+    <button id="undo" class="small ghost" title="Undo (Ctrl+Z)">Undo</button>
+    <span id="connection" class="pill">connecting…</span>
+  </header>
+
+  <main>
+    <aside id="left-panel" class="panel glass">
+      <nav id="left-tabs" class="segmented tabs">
+        <button type="button" data-tab="screens" class="active">Screens</button>
+        <button type="button" data-tab="visit">Visit</button>
+        <button type="button" data-tab="cameras">Cameras</button>
+      </nav>
+      <div class="panel-body">
+        <section data-tab="screens">
+          <h2>Screens <button id="add-screen" class="small">+ Screen</button></h2>
+          <ul id="screens" class="list"></ul>
+        </section>
+        <section id="screen-props" data-tab="screens"></section>
+
+        <section data-tab="visit">
+          <h2>Journey <span id="journey-stage" class="pill"><span class="dot"></span><span>waiting…</span></span></h2>
+          <div class="tiles">
+            <div class="tile"><span id="journey-face-dot" class="dot"></span><div><div class="stat-label">Face</div><div id="journey-face" class="tile-value">none</div></div></div>
+            <div class="tile"><span id="journey-phone-dot" class="dot"></span><div><div class="stat-label">Phone</div><div id="journey-phone" class="tile-value">not placed</div></div></div>
+          </div>
+          <p id="journey-readout" class="oracle-line"></p>
+          <div class="button-row">
+            <button id="place-phone" class="small" title="As if the phone were on the platform (P on a screen); press again to leave it to the tracker">Phone placed</button>
+            <button id="journey-reset" class="small danger" title="Everything wiped: the face, the reels, the history. Back to stage 0 (R on a screen)">Reset</button>
+          </div>
+        </section>
+        <section data-tab="visit">
+          <h2>Reel face <a href="/look" class="small-link" title="How it forms, melts and breaks">Look editor →</a></h2>
+          <div class="stats">
+            <div><div class="stat-label">Desire</div><div id="reelface-desire" class="stat-value">0<small>%</small></div></div>
+            <div class="mini-stats">
+              <div><div class="stat-label">Reels</div><div id="reelface-reels" class="mini-value">0</div></div>
+              <div><div class="stat-label">Fragments</div><div id="reelface-fragments" class="mini-value">0</div></div>
+              <div><div class="stat-label">Covered</div><div id="reelface-covered" class="mini-value">0%</div></div>
+            </div>
+          </div>
+          <div id="reelface-punchcard" class="punchcard" title="One per reel: filled when formed, hollow while waiting"></div>
+          <p id="reelface-readout" class="note"></p>
+          <div class="button-row">
+            <button id="reelface-test-1" class="small" title="A made-up reel, as if one was watched (pictures or videos in tests/reels, or invented). Counts once the phone is placed (T on a screen)">+1 reel</button>
+            <button id="reelface-test-5" class="small">+5 reels</button>
+            <button id="reelface-reset" class="small danger" title="The face back to nothing; the visit goes on">Clear face</button>
+          </div>
+          <div class="button-row">
+            <button id="speech-pause" class="small ghost" title="The face stops saying words for now">Pause speech</button>
+            <button id="speech-mute" class="small ghost" title="The face keeps mouthing its words and showing them, without sound">Mute</button>
+            <button id="reelface-still" class="small ghost" title="Saves the reel face as it is now as a picture, with this browser (editor only; for yourself or people who've agreed)">Save a still</button>
+          </div>
+          <label class="slider-row" title="The face as it was after each reel">
+            <span class="stat-label">History</span>
+            <input id="reelface-history" type="range" min="0" max="0" value="0">
+            <span id="reelface-history-value" class="slider-value">live</span>
+            <button id="reelface-live" class="small ghost">Live</button>
+          </label>
+          <label class="slider-row" title="How far formed (and so its look and desire), set by hand for testing. Auto follows the session: reels and seconds watched.">
+            <span class="stat-label">Formed</span>
+            <input id="reelface-intensity" type="range" min="0" max="100" value="0">
+            <span id="reelface-intensity-value" class="slider-value">auto</span>
+            <button id="reelface-auto" class="small ghost">Auto</button>
+          </label>
+          <p class="note">The participant's face, tracked live, formed from the reels they watch. Held for one visit only; nothing is saved.</p>
+        </section>
+
+        <section data-tab="cameras">
+          <h2>Phone tracker</h2>
+          <div id="detection"></div>
+        </section>
+        <section data-tab="cameras">
+          <h2>Face camera</h2>
+          <div id="face-camera"></div>
+        </section>
+        <section data-tab="cameras">
+          <h2>Cameras <button id="refresh" class="small" title="Look for cameras and monitors again">Refresh devices</button></h2>
+          <div id="cameras"></div>
+        </section>
+      </div>
+    </aside>
+
+    <div class="workspace">
+      <div id="preview"></div>
+      <p class="hint">Drag to move · drag handles to resize (Shift keeps the shape, Alt turns off snapping) · arrows nudge (Shift ×10) · Delete removes · Ctrl+Z undoes</p>
+    </div>
+
+    <aside class="panel glass">
+      <div class="panel-body">
+        <section>
+          <h2>Sources</h2>
+          <div id="add-source" class="button-row"></div>
+          <ul id="sources" class="list"></ul>
+        </section>
+        <section id="item-props"></section>
+      </div>
+    </aside>
+  </main>
+
+  <div id="toast" hidden></div>
+  <script type="module" src="/js/editor.js"></script>
+</body>
+</html>

@@ -1,0 +1,13 @@
+__pycache__/
+*.pyc
+recordings/
+logs/
+tests/clips/
+tests/finder-failures/
+faces/
+footage/**/*.mp4
+footage/**/*.avi
+footage/**/*.csv
+setup.json.tmp
+.claude/
+.playwright-mcp/

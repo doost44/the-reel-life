@@ -1,0 +1,166 @@
+/* The look editor: the face fills the window; glass cards float round it. */
+
+body { overflow: hidden; }
+
+#preview { position: fixed; inset: 0; cursor: ew-resize; touch-action: none; }
+#preview.scrubbing { cursor: grabbing; }
+
+.topbar { position: fixed; top: 14px; left: 16px; right: 16px; z-index: 5; }
+
+#left {
+  position: fixed;
+  top: 78px;
+  left: 16px;
+  bottom: 16px;
+  z-index: 4;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: 292px;
+  overflow-y: auto;
+}
+
+#right {
+  position: fixed;
+  top: 78px;
+  right: 16px;
+  bottom: 16px;
+  z-index: 4;
+  display: flex;
+  flex-direction: column;
+  width: 372px;
+  padding: 14px 16px 12px;
+}
+
+#timeline {
+  position: fixed;
+  left: 320px;
+  right: 400px;
+  bottom: 16px;
+  z-index: 4;
+  display: grid;
+  grid-template-columns: 128px 1fr;
+  gap: 8px;
+  height: clamp(132px, 22vh, 178px);
+  padding: 16px 14px 10px 18px;
+}
+
+/* The face camera */
+
+.camera-row { display: grid; grid-template-columns: 104px minmax(0, 1fr); gap: 10px; margin-bottom: 10px; }
+#camera-view { display: block; width: 100%; aspect-ratio: 4 / 3; border: 1px solid var(--stroke); border-radius: 10px; background: var(--sunken); }
+#face-camera { margin-top: 3px; padding: 3px 6px; font-size: 12px; }
+.camera-status { margin-top: 4px; color: var(--muted); font-size: 11px; line-height: 1.3; }
+.camera-status.ok { color: var(--ok); }
+.camera-status.warn { color: var(--warn); }
+.camera-status.bad { color: var(--bad); }
+
+/* Desire */
+
+#said { font-style: italic; transition: opacity 0.6s; }
+#said.gone { opacity: 0; }
+.mini-stats { margin: 12px 0 10px; }
+
+/* Looks and background */
+
+.card-title.spaced { margin-top: 14px; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip { display: inline-flex; border-radius: 999px; background: var(--raised); border: 1px solid var(--stroke); }
+.chip button { padding: 3px 4px 3px 12px; border: 0; background: none; font-size: 12px; }
+.chip button.chip-x { padding: 3px 10px 3px 6px; color: var(--faint); }
+.chip button.chip-x:hover { color: var(--bad); }
+.chip.active { background: var(--text); }
+.chip.active button { color: #0b0c0e; }
+.swatches { display: flex; flex-wrap: wrap; gap: 6px; }
+.swatch { padding: 3px 11px 3px 4px; font-size: 12px; color: var(--muted); cursor: pointer; }
+.swatch i { width: 18px; height: 18px; border-radius: 50%; border: 1px solid var(--stroke-strong); }
+.swatch.active { color: var(--text); border-color: var(--text); }
+label.swatch {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--stroke);
+  border-radius: 999px;
+  background: var(--raised);
+}
+label.swatch input { width: 18px; height: 18px; padding: 0; border: 0; border-radius: 50%; background: none; overflow: hidden; }
+label.swatch input::-webkit-color-swatch-wrapper { padding: 0; }
+label.swatch input::-webkit-color-swatch { border: 1px solid var(--stroke-strong); border-radius: 50%; }
+
+/* Settings: a ramp each, from the first reels (left) to the full face (right) */
+
+#group-tabs { display: flex; flex-wrap: wrap; width: 100%; border-radius: 16px; }
+#group-tabs > * { flex: 1 1 auto; padding: 5px 3px; font-size: 11.5px; }
+#group-note { min-height: 0; margin: 8px 2px 0; }
+#group-note:empty { display: none; }
+#settings { flex: 1; min-height: 0; margin: 8px -6px 0; padding: 0 6px; overflow-y: auto; }
+
+.setting { padding: 9px 10px 8px; border-radius: 14px; transition: background 0.15s; }
+.setting:hover { background: var(--raised); }
+.setting.selected { background: var(--raised); box-shadow: inset 0 0 0 1px var(--stroke-strong); }
+.setting.solo { background: rgba(255, 159, 67, 0.12); box-shadow: inset 0 0 0 1px rgba(255, 159, 67, 0.5); }
+.setting-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.setting-name { cursor: pointer; user-select: none; }
+.setting-now { font-size: 20px; font-weight: 300; font-variant-numeric: tabular-nums; }
+.ramp { display: block; width: 100%; height: 36px; margin: 2px 0 1px; cursor: ns-resize; touch-action: none; }
+.setting-ends { display: flex; justify-content: space-between; color: var(--faint); font-size: 11px; }
+.setting-ends b { color: var(--muted); font: 400 11px var(--mono); cursor: text; }
+.setting-ends input { width: 64px; padding: 0 6px; font: 11px var(--mono); }
+
+.help { min-height: 34px; margin: 8px 2px 0; color: var(--muted); font-size: 12px; }
+
+/* Timeline */
+
+.timeline-side { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; }
+.timeline-side .note { margin: 0; }
+.timeline-side button { margin-top: 6px; }
+.chart-box { position: relative; min-width: 0; min-height: 0; }
+#chart { position: absolute; inset: 0; width: 100%; height: 100%; cursor: ew-resize; touch-action: none; }
+
+/* Floating tags over the face */
+
+#scrub-hint, #solo-tag {
+  position: fixed;
+  z-index: 6;
+  color: var(--text);
+  background: var(--glass-solid);
+  border: 1px solid var(--stroke-strong);
+  pointer-events: none;
+}
+#scrub-hint { transform: translate(-50%, -150%); }
+#solo-tag { top: 84px; left: 50%; transform: translateX(-50%); }
+#solo-tag::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--hot); box-shadow: 0 0 8px var(--hot); }
+
+/* Narrower windows: cards and timeline slimmer */
+
+@media (max-width: 1280px) {
+  #left { width: 240px; }
+  #right { width: 316px; }
+  #timeline { left: 268px; right: 344px; grid-template-columns: 96px 1fr; padding-left: 14px; }
+  .stat-value { font-size: 34px; }
+  .card { padding: 14px 14px; }
+}
+
+@media (max-height: 700px) {
+  .topbar { top: 10px; }
+  #left, #right { top: 66px; }
+  .tile { padding: 7px 10px; }
+  .mini-stats { margin: 8px 0 6px; }
+}
+
+/* Narrow (a small browser pane): one column, the face on top, scrolling. */
+
+@media (max-width: 900px) {
+  html, body { height: auto; min-height: 100%; }
+  body { display: flex; flex-direction: column; overflow: auto; }
+  body > * { flex-shrink: 0; }
+  .topbar { order: -1; }
+  #preview { position: relative; height: 56vh; }
+  .topbar { position: sticky; top: 8px; margin: 8px; }
+  #left, #right, #timeline { position: static; width: auto; margin: 12px; }
+  #left { overflow: visible; }
+  #right { max-height: none; }
+  #settings { overflow: visible; }
+  #timeline { height: 170px; }
+  .topbar { flex-wrap: wrap; border-radius: 22px; }
+}

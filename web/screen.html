@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Reel Life Screen</title>
+  <link rel="stylesheet" href="/css/stage.css">
+  <style>
+    html, body { margin: 0; height: 100%; background: #000; overflow: hidden; cursor: none; }
+    #root { position: absolute; inset: 0; }
+    #debug, #notice {
+      position: fixed; left: 12px; bottom: 12px; margin: 0; padding: 8px 10px;
+      font: 14px/1.4 Consolas, monospace; color: #9f9; background: rgba(0, 0, 0, 0.75);
+    }
+    #notice { color: #fff; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+  <pre id="debug" hidden></pre>
+  <p id="notice" hidden></p>
+  <script type="module" src="/js/screen.js"></script>
+</body>
+</html>
