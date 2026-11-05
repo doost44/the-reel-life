@@ -1,17 +1,18 @@
-// One screen, at /screen/<id>: shows that screen's layout from the setup and
-// the live journey, and follows every change made in the editor.
+// One screen, at screen.html?id=<id> (or /screen/<id> from the Python eye):
+// shows that screen's layout from the setup and the live journey, and follows
+// every change made in the editor.
 //
 // Operator keys: D debug readout · P phone placed (or back to the tracker)
-// · R reset (everything wiped, back to stage 0) · T a test reel
+// · R reset (everything wiped, back to stage 0) · T a test reel · F fullscreen
 
 import { connect } from './link.js';
 import { Stage, STAGES, camerasIn } from './stage.js';
 
-const screenId = decodeURIComponent(location.pathname.split('/').pop());
+const asked = new URLSearchParams(location.search);
+const screenId = asked.get('id') ?? decodeURIComponent(location.pathname.split('/').pop());
 const stage = new Stage(document.getElementById('root'));
 
-// A still of any stage, for documentation or tweaking the look: /screen/reelface?stage=seen
-const asked = new URLSearchParams(location.search);
+// A still of any stage, for documentation or tweaking the look: screen.html?id=reelface&stage=awake
 if (STAGES.includes(asked.get('stage'))) stage.setPreviewStage(asked.get('stage'));
 const debug = document.getElementById('debug');
 const notice = document.getElementById('notice');
@@ -94,12 +95,19 @@ function showNotice(text) {
   notice.hidden = !text;
 }
 
+// A window the editor opened on a monitor goes fullscreen with a click (no
+// page can make another fullscreen); the click also lets it speak.
+addEventListener('pointerdown', () => {
+  if (link.local && !document.fullscreenElement) document.documentElement.requestFullscreen?.().catch(() => {});
+});
+
 addEventListener('keydown', (event) => {
   const key = event.key.toLowerCase();
   if (key === 'd') debug.hidden = !debug.hidden;
   else if (key === 'p') link.send({ type: 'place_phone', present: phoneOverride === null });
   else if (key === 'r') link.send({ type: 'reset' });
   else if (key === 't') link.send({ type: 'reelface_test_reels', count: 1 });
+  else if (key === 'f') document.documentElement.requestFullscreen?.().catch(() => {});
   else return;
   event.preventDefault();
 });
@@ -119,7 +127,7 @@ function showDebug() {
     `${screen.name} (${screenId}) ${screen.width}×${screen.height}, window ${innerWidth}×${innerHeight}`,
     `stage: ${journey.stage}, face ${journey.face ? 'seen' : 'none'}, phone ${journey.phone ? 'placed' : 'not placed'}${phoneOverride === null ? '' : ' (by hand)'}`,
     `reels: ${face.reels ?? 0} (${face.waiting_reels ?? 0} waiting), tiles ${face.fragments ?? 0}, progress ${Math.round(100 * (face.progress ?? 0))}%, desire ${Math.round(100 * (face.desire ?? 0))}%`,
-    'keys: P phone placed · R reset · T test reel · D hide',
+    'keys: P phone placed · R reset · T test reel · F fullscreen · D hide',
   ];
   for (const view of stage.views.values()) {
     if (view.type !== 'reelface') continue;

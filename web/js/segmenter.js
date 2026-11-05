@@ -25,7 +25,7 @@ export class HeadSegmenter {
 
   start() {
     // A classic worker, as in tracker.js.
-    this.worker = new Worker('/js/segmenter-worker.js');
+    this.worker = new Worker(new URL('./segmenter-worker.js', import.meta.url));
     this.worker.onmessage = ({ data }) => {
       if (data.type === 'ready') {
         this.ready = true;

@@ -54,7 +54,7 @@ const link = connect({
   onMessage,
   onFrame: (name, bitmap) => stage.frame(name, bitmap),
   onConnection(connected) {
-    $('#connection').textContent = connected ? 'Eye connected' : 'Eye offline';
+    $('#connection').textContent = `${link.local ? 'Eye (in Chrome)' : 'Eye'} ${connected ? 'connected' : 'offline'}`;
     $('#connection').className = `pill ${connected ? 'ok' : 'bad'}`;
   },
 });

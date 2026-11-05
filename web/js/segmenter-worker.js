@@ -4,7 +4,7 @@
 // (second byte), and how bright the hair is on average. A classic worker, like
 // tracker-worker.js, for the same reason.
 
-const MEDIAPIPE = '/vendor/mediapipe';
+const MEDIAPIPE = new URL('../vendor/mediapipe', self.location.href).href; // next to the pages, wherever they're served
 // The model's categories: 0 background, 1 hair, 2 body skin, 3 face skin, 4 clothes, 5 others (accessories).
 const HAIR = [false, true, false, false, false, true];
 const SKIN = [false, false, true, true, false, false];

@@ -28,7 +28,8 @@ phone camera ─▶ the phone on the platform          face camera ─▶ the pa
         │                                                  │  one WebSocket per page
   web/  /editor          lay out the screens; run the exhibit by hand
         /look            the look editor: how the face forms, melts and breaks
-        /screen/<id>     one fullscreen screen
+        /screen.html?id= one fullscreen screen
+        js/eye/          the same eye in JavaScript, for when there's no Python (GitHub Pages): see below
         reelface.js      the face, tracked live (MediaPipe, tracker.js), formed from fragments, moshed
         segmenter.js     finds each person's hair and ears (MediaPipe's selfie model), for the 3D head round the face
         oracle.js        the faceless oracle's words     speech.js  the face's words and mouth
@@ -39,6 +40,10 @@ phone camera ─▶ the phone on the platform          face camera ─▶ the pa
 - `setup.json`: written by the editors: screens and their sources, which camera is which, the locked phone
   position, which monitor each screen opens on, and the face's look and its presets.
 - Nothing about a visit is ever written to disk (see Privacy).
+
+There are two ways to run it. The **Python eye** (`run.ps1`, `run.sh`) is the full one. **In Chrome**, with
+no Python at all, the same eye runs inside the pages, from GitHub Pages or any web server (see "Run it in
+Chrome, without Python").
 
 ## First-time setup
 
@@ -90,9 +95,39 @@ need ffmpeg (only `tools/` uses it, to convert recordings: `brew install ffmpeg`
   the wrong address, set `still.host` in `config.yaml` to the Mac's address on that network (System Settings ›
   Wi-Fi › Details). macOS may ask to let Python accept incoming connections: allow it.
 
-https://doost44.github.io/the-reel-life/ has links to the prototype. GitHub Pages can't run it (it needs the eye,
-the cameras and the phone detection), so those links only work on the computer running the eye. A screen opened
-from a link stays silent until it's clicked once.
+A screen opened from a link stays silent until it's clicked once.
+
+## Run it in Chrome, without Python
+
+Open https://doost44.github.io/the-reel-life/ in Chrome or Edge and press **Setup**. That's all: the eye runs
+in the browser, with the cameras of the computer it's on. (Pages serves the `main` branch.) Any web server
+serving this folder works the same way, for instance `python -m http.server` here and then
+http://localhost:8000/web/editor.html. Opening the files straight from disk doesn't: browsers won't run the
+pages' modules from `file://`.
+
+1. **The first time**, press **Refresh devices** in Setup and allow the cameras (and window management, so it can
+   see the other monitors). Then choose the phone camera and the face camera as usual. Chrome's camera names
+   are the ones the Python eye uses, so a setup made with either works in the other.
+2. **One page runs the eye**: the first one opened (the editor, or a screen), in a background worker, so it
+   keeps watching the phone even when its window is covered. Keep it open. If it's closed, the next page in
+   line takes over and the visit starts again. The editor's badge says **Eye (in Chrome)**.
+3. **Screens on monitors**: **Open fullscreen** opens the screen in a window filling its monitor. Click it once
+   (or press F) and it goes fullscreen and can speak: a page can't make another one fullscreen.
+
+What's different:
+
+- **The setup lives in this browser**, not in `setup.json`: it starts from the repository's `setup.json`, and the
+  editors' changes stay in the browser that made them.
+- **No QR code**: with no server, a visitor's phone has nothing to fetch the still from, so their face shows
+  on its own (as the Python eye does with no network).
+- **No footage recording**, and recorded clips can't stand in for cameras (the camera list has only real ones). Test reels are
+  invented ones (not `tests/reels`), and exposure is only set where Chrome can set it.
+- **The same eye**: `web/js/eye/` is a line-by-line copy of `eye/` (`journey.js` is `journey.py`, and so on), and
+  the phone tracker uses OpenCV too, in its browser build (`web/vendor/opencv`), so both see the same swipes.
+  Change both together, then check the tracker with `tools/check_browser_eye.py <clip>`, which runs both on
+  a clip and compares them (it needs Node.js). On the synthetic clips both find the same swipes at the same
+  times. (OpenCV 5 samples between pixels a little differently from 4.x and OpenCV.js; for the closest match,
+  run the Python eye with OpenCV 4.x.)
 
 ## The journey
 
@@ -287,6 +322,7 @@ $python = "$env:USERPROFILE\.venvs\reel-life\Scripts\python.exe"
 & $python tools\test_screen_finder.py        # score the screen finder on 400 synthetic phones at random angles
 & $python tools\make_footage_demos.py        # demo videos and an angle sheet for presenting, into footage/demos
 & $python tools\list_cameras.py              # every camera and monitor the eye can see
+& $python tools\check_browser_eye.py <clip>  # the Python and Chrome swipe detectors side by side (needs Node.js)
 ```
 
 ## Footage for presenting
@@ -299,7 +335,9 @@ camera only).
 
 - **Local only.** The eye only serves its pages on this computer (127.0.0.1), and MediaPipe runs inside the
   page. Nothing goes online. The one exception is on the local network: a tiny second site (`still.port`)
-  that serves nothing but a visitor's still, at a link nobody could guess.
+  that serves nothing but a visitor's still, at a link nobody could guess. **In Chrome** the pages come from
+  GitHub Pages, but nothing goes back: the cameras, the phone tracker and MediaPipe all run in the browser,
+  and the pages only talk to each other. It keeps the setup in the browser's storage, never anything of a visit.
 - **Nothing about a visit is saved.** The face camera's pictures go to the screens live and are dropped.
   The reels' stills, the tiles, the history and the face exist only in memory, for one visit, and are wiped
   when it ends, when a new one starts (visits are counted, so even one that starts the instant the last

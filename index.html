@@ -1,13 +1,13 @@
 <!doctype html>
-<!-- The Reel Life's GitHub Pages site. Pages only serves files, so this page
-     doesn't run the prototype: its links open the prototype on the exhibit
-     computer, where the eye (Python) runs the cameras and the visit. -->
+<!-- The Reel Life's GitHub Pages site. Pages only serves files, so the eye
+     runs in Chrome here (web/js/eye/); the second card's links open the
+     prototype on a computer running the Python eye instead. -->
 <html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>The Reel Life</title>
-  <meta name="description" content="A live exhibit about watching reels. This page opens the prototype on the exhibit computer.">
+  <meta name="description" content="A live exhibit about watching reels. It runs in Chrome, with your cameras.">
   <style>
     :root {
       --bg: #08090b;
@@ -128,20 +128,26 @@
     <p class="about">A live exhibit about watching reels. Put your phone on the platform and watch with something that has never seen one.</p>
 
     <section class="card" aria-labelledby="open-heading">
-      <h2 id="open-heading" hidden>Open the prototype</h2>
-      <a class="button primary" href="http://localhost:8765/screen/reelface">Open the prototype</a>
+      <h2 id="open-heading">Run it here, in Chrome</h2>
+      <a class="button primary" href="web/screen.html?id=reelface">Open the prototype</a>
       <div class="more">
-        <a class="button" href="http://localhost:8765/look">Look</a>
-        <a class="button" href="http://localhost:8765/editor">Setup</a>
+        <a class="button" href="web/look.html">Look</a>
+        <a class="button" href="web/editor.html">Setup</a>
       </div>
-      <p>Click the prototype once after it opens, so the browser lets it speak.</p>
+      <p>Nothing to install: the eye runs in the browser, with this computer's cameras. Use Chrome or Edge.</p>
+      <p>The first time, open Setup, press Refresh devices and allow the cameras (and window management, to open screens on other monitors). Then choose the phone camera and the face camera. Keep one page of it open: the first one opened runs the eye.</p>
+      <p>Click the prototype once after it opens, so it goes fullscreen and the browser lets it speak.</p>
     </section>
 
     <section class="card" aria-labelledby="start-heading">
-      <h2 id="start-heading">Start it on the exhibit computer first</h2>
-      <p>The prototype runs on that computer, with its cameras, so these buttons only work there. In the project folder, run:</p>
+      <h2 id="start-heading">Or with the Python eye</h2>
+      <p>On a computer running the Python eye these open it instead, with the visitor's QR code and footage recording. In the project folder, run:</p>
       <code>.\run.ps1 -OpenScreens</code>
-      <p>That also opens the exhibit fullscreen on its monitor with sound on, so no click is needed. Use this for the show.</p>
+      <p>(on a Mac, <code style="display:inline;padding:2px 6px;margin:0">./run.sh --open-screens</code>). That also opens the exhibit fullscreen on its monitor with sound on, so no click is needed.</p>
+      <div class="more">
+        <a class="button" href="http://localhost:8765/screen.html?id=reelface">Prototype</a>
+        <a class="button" href="http://localhost:8765/editor">Setup</a>
+      </div>
       <p>If the exhibit doesn't open, its monitor isn't connected or has changed. Go to Setup, choose the monitor and press Open fullscreen.</p>
     </section>
 

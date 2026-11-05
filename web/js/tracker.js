@@ -18,7 +18,7 @@ export class FaceTracker {
     this.lastPicture = null;
     this.lastTime = 0;
     // A classic worker, not a module one: MediaPipe loads its runtime with importScripts, which modules can't use.
-    this.worker = new Worker('/js/tracker-worker.js');
+    this.worker = new Worker(new URL('./tracker-worker.js', import.meta.url));
     this.worker.onmessage = ({ data }) => {
       if (data.type === 'ready') this.ready = true;
       else if (data.type === 'failed') console.error('MediaPipe could not start:', data.error);

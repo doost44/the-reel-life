@@ -1,7 +1,7 @@
 """The eye's web server.
 
 Serves the setup editor (/editor), the look editor (/look) and each screen
-(/screen/<id>) to this computer only, streams
+(/screen.html?id=<id>) to this computer only, streams
 camera pictures to them over one WebSocket per page, saves what the editor
 sends to setup.json, and opens screens fullscreen on their monitors.
 
@@ -46,6 +46,7 @@ import sys
 import time
 import webbrowser
 from pathlib import Path
+from urllib.parse import quote, urlencode
 
 import cv2
 import numpy as np
@@ -405,7 +406,7 @@ class Eye:
             return "Couldn't find Chrome or Edge. Set browser.path in config.yaml."
         self.close_screen(screen_id)
         profile = BROWSER_PROFILES / re.sub(r"[^\w-]", "_", screen_id)
-        url = f"http://127.0.0.1:{self.port}/screen/{screen_id}"
+        url = f"http://127.0.0.1:{self.port}/screen.html?id={quote(screen_id)}"
         self.windows[screen_id] = monitors.open_fullscreen(url, monitor, profile, browser)
         return None
 
@@ -561,6 +562,18 @@ async def _to_editor(_request: web.Request) -> web.Response:
     raise web.HTTPFound("/editor")
 
 
+async def _to_screen(request: web.Request) -> web.Response:
+    """The old address of a screen, /screen/<id>: the pages use relative paths now, so they work anywhere."""
+    query = {"id": request.match_info["id"], **{k: v for k, v in request.query.items() if k != "id"}}
+    raise web.HTTPFound(f"/screen.html?{urlencode(query)}")
+
+
+async def _this_is_the_eye(_request: web.Request) -> web.Response:
+    """Pages ask, to know they're served by the Python eye and not somewhere
+    that only serves files (GitHub Pages), where the eye runs in Chrome instead (web/js/link.js)."""
+    return web.json_response({"eye": "python"}, headers={"X-Reel-Life-Eye": "python"})
+
+
 def run(port: int | None = None, open_editor: bool = False, open_screens: bool = False) -> None:
     config = settings.load_config()
     port = port or config["server"]["port"]
@@ -570,9 +583,15 @@ def run(port: int | None = None, open_editor: bool = False, open_screens: bool =
     app["open_editor"] = open_editor
     app["open_screens"] = open_screens
     app.router.add_get("/", _to_editor)
+    app.router.add_get("/eye", _this_is_the_eye)
     app.router.add_get("/editor", _page("editor.html"))
     app.router.add_get("/look", _page("look.html"))
-    app.router.add_get("/screen/{id}", _page("screen.html"))
+    for name in ("editor.html", "look.html", "screen.html"):
+        app.router.add_get(f"/{name}", _page(name))
+    app.router.add_get("/screen/{id}", _to_screen)
+    # What the Chrome version of the eye reads at start, for pages opened here with ?local (web/js/link.js).
+    for name in ("config.yaml", "setup.json"):
+        app.router.add_get(f"/{name}", lambda _request, name=name: web.FileResponse(settings.ROOT / name))
     app.router.add_get("/ws", eye.websocket)
     app.router.add_post("/still", eye.receive_still)
     app.router.add_static("/js", WEB / "js")

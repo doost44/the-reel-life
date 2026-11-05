@@ -106,7 +106,7 @@ const WIDE_EYES = 0.016; // how much wider the eyes open at full desire
 // MediaPipe's face layout: which points make each triangle, and where each
 // corner sits on the reel skin. Loaded once, shared by every reel face.
 let layout = null;
-fetch('/vendor/mediapipe/canonical_face_model.obj')
+fetch(new URL('../vendor/mediapipe/canonical_face_model.obj', import.meta.url))
   .then((response) => response.text())
   .then((text) => { layout = parseLayout(text); })
   .catch((error) => console.error('The face layout could not load:', error));
@@ -977,7 +977,7 @@ export class ReelFaceView {
     this.stillPicture = still;
     if (this.stage.editing) return;
     still.toBlob((blob) => {
-      if (blob) fetch('/still', { method: 'POST', body: blob }).catch(() => {});
+      if (blob) this.stage.send?.({ type: 'still_picture', jpeg: blob });
     }, 'image/jpeg', 0.92);
   }
 

@@ -411,9 +411,9 @@ function renderScreenProps() {
       isOpen
         ? button('Close fullscreen', () => link.send({ type: 'close_screen', id: screen.id }))
         : button('Open fullscreen', () => openScreen(screen), 'primary'),
-      button('Open in a tab', () => window.open(`/screen/${encodeURIComponent(screen.id)}`, `screen-${screen.id}`)),
+      button('Open in a tab', () => window.open(screenAddress(screen), `screen-${screen.id}`)),
       button('Delete', () => deleteScreen(screen), 'danger')),
-    el('p', { className: 'note' }, 'Address: ', el('code', { textContent: `/screen/${screen.id}` })),
+    el('p', { className: 'note' }, 'Address: ', el('code', { textContent: screenAddress(screen) })),
   );
 }
 
@@ -432,7 +432,8 @@ function renderDetection() {
       state.corners
         ? button(`Cancel (${state.corners.length}/4)`, stopCorners, 'small')
         : button('Click the phone\'s corners', startCorners, 'small'),
-      Object.assign(button('', () => link.send({ type: 'record', on: !isRecording() }), 'small'),
+      // Recording footage writes files, which only the Python eye can.
+      link.local ? '' : Object.assign(button('', () => link.send({ type: 'record', on: !isRecording() }), 'small'),
         { id: 'record-footage', title: 'Saves the camera and the detection view to footage/live-tests (your own tests only)' })),
     el('p', {
       className: 'note',
@@ -442,7 +443,7 @@ function renderDetection() {
           ? 'The phone screen\'s corners are fixed. Unlock to find the phone again.'
           : 'The phone is found by its lit screen on a dark background. Once it sits still, lock its position, or click its corners yourself on any background.',
     }),
-    el('p', { className: 'note', textContent: 'Add a "Detection view" source to any screen to see what the detector sees. Recorded clips appear in the camera list too.' }),
+    el('p', { className: 'note', textContent: `Add a "Detection view" source to any screen to see what the detector sees.${link.local ? '' : ' Recorded clips appear in the camera list too.'}` }),
   );
   updateDetectionStatus();
 }
@@ -455,10 +456,12 @@ function updateDetectionStatus() {
   const detection = state.detection;
   if (!readout || !detection) return;
   const recordButton = $('#record-footage');
-  recordButton.textContent = isRecording()
-    ? `■ Stop recording ${Math.floor(detection.recording / 60)}:${String(detection.recording % 60).padStart(2, '0')}`
-    : '● Record footage';
-  recordButton.classList.toggle('recording', isRecording());
+  if (recordButton) {
+    recordButton.textContent = isRecording()
+      ? `■ Stop recording ${Math.floor(detection.recording / 60)}:${String(detection.recording % 60).padStart(2, '0')}`
+      : '● Record footage';
+    recordButton.classList.toggle('recording', isRecording());
+  }
   const camera = state.cameras[detection.camera];
   const last = detection.last;
   readout.textContent = [
@@ -493,7 +496,9 @@ function renderCameras() {
     others.length ? el('ul', { className: 'device-list' }, ...others.map((name) => el('li', {},
       el('span', { className: 'name', textContent: name.replace(/^clip: /, ''), title: name }),
       el('span', { className: 'meta', textContent: name.startsWith('clip: ') ? 'clip' : 'camera' })))) : '',
-    state.devices.length ? '' : el('p', { className: 'note', textContent: 'No cameras found. Is ffmpeg installed?' }),
+    state.devices.length ? '' : el('p', { className: 'note', textContent: link.local
+      ? 'No cameras yet: press Refresh devices and let Chrome use the cameras (and, for opening screens on monitors, manage windows).'
+      : 'No cameras found. Is ffmpeg installed?' }),
   ));
   updateCameraStatus();
 }
@@ -1015,9 +1020,18 @@ function setPath(object, path, value) {
   target[last] = value;
 }
 
+// Where a screen opens, in a tab or fullscreen: next to this page, wherever it's served.
+function screenAddress(screen) {
+  const address = new URL('screen.html', location.href);
+  address.searchParams.set('id', screen.id);
+  return address.href;
+}
+
 function showConnection(connected) {
   const pill = $('#connection');
-  pill.textContent = connected ? 'Eye connected' : 'Eye offline, reconnecting…';
+  const eye = link.local ? 'Eye (in Chrome)' : 'Eye';
+  pill.textContent = connected ? `${eye} connected` : `${eye} offline, reconnecting…`;
+  pill.title = link.local ? 'No Python eye here, so the eye runs in this browser, in whichever page of it opened first.' : '';
   pill.className = `pill ${connected ? 'ok' : 'bad'}`;
 }
 

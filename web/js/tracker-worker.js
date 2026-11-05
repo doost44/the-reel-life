@@ -4,7 +4,7 @@
 // worker that imports MediaPipe's module: its runtime loads with
 // importScripts, which only classic workers have.
 
-const MEDIAPIPE = '/vendor/mediapipe';
+const MEDIAPIPE = new URL('../vendor/mediapipe', self.location.href).href; // next to the pages, wherever they're served
 
 const ready = (async () => {
   const { FaceLandmarker, FilesetResolver } = await import(`${MEDIAPIPE}/vision_bundle.mjs`);
