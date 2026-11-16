@@ -171,3 +171,13 @@ h2 {
   .brand span { display: none; }
   #preview-stage > * { padding: 5px 9px; }
 }
+
+/* The operator panel's health list, and the visit profile's weights. */
+.health-list, .weights { list-style: none; margin: 4px 0; padding: 0; display: grid; gap: 4px; font-size: 12px; }
+.health-list li { display: grid; grid-template-columns: 10px 96px 1fr; gap: 8px; align-items: baseline; }
+.health-list li .detail { color: var(--muted); line-height: 1.3; }
+.dot.warn { background: var(--warn); box-shadow: 0 0 10px var(--warn); }
+.pill.warn { color: var(--text); }
+.weights li { display: grid; grid-template-columns: 104px 1fr 40px; gap: 8px; align-items: center; }
+.weights li .bar { height: 6px; border-radius: 3px; background: var(--hot); }
+.weights li .value { text-align: right; font-variant-numeric: tabular-nums; color: var(--muted); }

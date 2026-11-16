@@ -4,6 +4,7 @@
 //
 // Operator keys: D debug readout · P phone placed (or back to the tracker)
 // · R reset (everything wiped, back to stage 0) · T a test reel · F fullscreen
+// · L a like (on the reel on the phone's screen: a like pad on the platform can type it)
 
 import { connect } from './link.js';
 import { Stage, STAGES, camerasIn } from './stage.js';
@@ -20,6 +21,7 @@ const notice = document.getElementById('notice');
 let screen = null;
 let cameras = {};
 let phoneOverride = null;
+let profile = null;
 let framesThisSecond = {};
 let framesPerSecond = {};
 
@@ -43,6 +45,10 @@ function onMessage(message) {
       stage.journey(message.journey);
       stage.reelFace(message.reel_face);
       stage.still(message.still);
+      profile = message.profile;
+      break;
+    case 'profile':
+      profile = message;
       break;
     case 'setup':
       show(message.setup);
@@ -107,6 +113,7 @@ addEventListener('keydown', (event) => {
   else if (key === 'p') link.send({ type: 'place_phone', present: phoneOverride === null });
   else if (key === 'r') link.send({ type: 'reset' });
   else if (key === 't') link.send({ type: 'reelface_test_reels', count: 1 });
+  else if (key === 'l' && !event.repeat) link.send({ type: 'like', source: 'key' });
   else if (key === 'f') document.documentElement.requestFullscreen?.().catch(() => {});
   else return;
   event.preventDefault();
@@ -127,7 +134,8 @@ function showDebug() {
     `${screen.name} (${screenId}) ${screen.width}×${screen.height}, window ${innerWidth}×${innerHeight}`,
     `stage: ${journey.stage}, face ${journey.face ? 'seen' : 'none'}, phone ${journey.phone ? 'placed' : 'not placed'}${phoneOverride === null ? '' : ' (by hand)'}`,
     `reels: ${face.reels ?? 0} (${face.waiting_reels ?? 0} waiting), tiles ${face.fragments ?? 0}, progress ${Math.round(100 * (face.progress ?? 0))}%, desire ${Math.round(100 * (face.desire ?? 0))}%`,
-    'keys: P phone placed · R reset · T test reel · F fullscreen · D hide',
+    `profile: ${profile?.likes ?? 0} likes, ${profile?.back ?? 0} back, ${profile?.skipped ?? 0} skipped, top ${profile?.top ?? '-'}`,
+    'keys: P phone placed · R reset · T test reel · L like · F fullscreen · D hide',
   ];
   for (const view of stage.views.values()) {
     if (view.type !== 'reelface') continue;

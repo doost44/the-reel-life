@@ -93,13 +93,13 @@ class ReelFace:
         self.reels.append(reel)
         return True
 
-    def add_test_reels(self, count: int, t: float) -> bool:
-        """Made-up reels, for trying it without a phone (tests/reels, or invented)."""
+    def add_test_reels(self, count: int, t: float) -> list[ReelRecord]:
+        """Made-up reels, for trying it without a phone (tests/reels, or invented). Returns the ones added."""
         if not self.on:
-            return False
-        for _ in range(max(0, min(count, 50))):
-            self.reels.append(test_reel(len(self.reels) + 1, t, self._random))
-        return True
+            return []
+        added = [test_reel(len(self.reels) + 1 + i, t, self._random) for i in range(max(0, min(count, 50)))]
+        self.reels.extend(added)
+        return added
 
     def reset_copy(self) -> None:
         """Back to no face at all: the reels so far are dropped (the visit goes on)."""

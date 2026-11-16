@@ -9,14 +9,17 @@
 
 import { cameraModes, defaultSetup, isValid } from './config.js';
 import { completeLook, describedLook } from './look-settings.js';
+import { healthParts } from './health.js';
 import { Journey } from './journey.js';
-import { ReelFace } from './reel-face.js';
+import { Profile } from './profile.js';
+import { ReelFace, clipName } from './reel-face.js';
 import { ReelSampler } from './sampler.js';
 import { DETECTION_VIEW, SwipeWatcher, looksLikeNoSignal } from './watcher.js';
 
 const UPDATES_PER_SECOND = 10;
 const FACE_REPORT_SECONDS = 2;      // a page's "I see a face" holds this long without another
 const MOVEMENT_REPORT_SECONDS = 3;  // ...and its "I see movement"
+const HEALTH_REPORT_SECONDS = 6;    // a reel face screen's report on its face camera and tracking holds this long
 const SAVE_AFTER = 0.5;             // the editor sends changes many times a second while dragging
 
 const now = () => performance.now() / 1000;
@@ -41,6 +44,7 @@ export class Eye {
     this.journey = new Journey(config.journey, (message) => this.broadcast(message), t);
     this.reelFace = new ReelFace(config.reel_face, layout);
     this.reelFace.clips = clips;
+    this.profile = new Profile(config.profile);
     this.visitSeen = this.journey.visits;
     this.stageSeen = this.journey.stage;
     this.sampler = new ReelSampler(config.reel_face, config.detection.rotate, (reel) => this.onReel(reel));
@@ -62,11 +66,11 @@ export class Eye {
   // Pages
 
   join(id) {
-    this.clients.set(id, { watching: new Set(), faceSeenAt: -1e9, movementSeenAt: -1e9 });
+    this.clients.set(id, { watching: new Set(), faceSeenAt: -1e9, movementSeenAt: -1e9, faceHealth: null, faceHealthAt: -1e9 });
     const t = now();
     this.send(id, {
       type: 'hello', setup: this.setup, devices: this.devices, monitors: [], status: this.status(),
-      journey: this.journey.snapshot(t), reel_face: this.reelFace.message(), still: this.stillMessage(),
+      journey: this.journey.snapshot(t), reel_face: this.reelFace.message(), profile: this.profile.message(), still: this.stillMessage(),
       look_settings: describedLook(),
       // For the pages, which open their own cameras in the Chrome version (cameras.js).
       local: { face_clip: this.faceClip, preview_fps: this.config.cameras.preview_fps, reconnect_seconds: this.config.cameras.reconnect_seconds },
@@ -155,7 +159,9 @@ export class Eye {
         break;
       case 'reelface_reset':
         this.reelFace.resetCopy();
+        this.profile.clearReels();
         this.broadcast(this.reelFace.message());
+        this.broadcast(this.profile.message());
         break;
       case 'speech_pause':
         this.reelFace.speechPaused = Boolean(message.paused);
@@ -165,12 +171,29 @@ export class Eye {
         this.reelFace.muted = Boolean(message.muted);
         this.broadcast(this.reelFace.message());
         break;
-      case 'reelface_test_reels':
+      case 'reelface_test_reels': {
         this.journey.beginWatching(t);
-        if (!(this.journey.stage === 'forming' && this.reelFace.addTestReels(Math.trunc(message.count ?? 1), t))) {
+        const added = this.journey.stage === 'forming' ? this.reelFace.addTestReels(Math.trunc(message.count ?? 1), t) : [];
+        if (!added.length) {
           this.notice(id, 'Test reels count once the oracle has asked to watch some: wait for it to ask for the phone, then press Phone placed.');
         }
+        for (const reel of added) this.profile.addReel(reel.number, 'test', reel.started, reel.watched, reel.stills.length);
         this.broadcast(this.reelFace.message());
+        this.broadcast(this.profile.message());
+        break;
+      }
+      case 'like':
+        this.like(String(message.source || 'test'), t, id);
+        break;
+      case 'unlike':
+        if (this.journey.counting && this.profile.unlike()) {
+          this.broadcast({ type: 'unlike', likes: this.profile.likes.length });
+          this.broadcast(this.profile.message());
+        }
+        break;
+      case 'face_health':
+        client.faceHealth = { tracking: message.tracking, picture: message.picture, face: message.face };
+        client.faceHealthAt = t;
         break;
       case 'climax_now':
         if (this.journey.stage === 'forming' && this.reelFace.shown) this.beginClimax(t);
@@ -189,10 +212,29 @@ export class Eye {
     // Frames that stop coming: the camera's gone quiet (unplugged, or the page that opened it froze).
     if (this.camera.status === 'ok' && now() - (this.lastFrameAt ?? 0) > 2) this.camera = { ...this.camera, status: 'lost', fps: 0 };
     if (this.setup.detection_camera) cameras[this.setup.detection_camera] = { ...this.camera };
+    const detection = this.watcher.info();
+    const detectionCamera = this.setup.detection_camera ?? '';
     return {
-      type: 'status', cameras, open_screens: [], detection: this.watcher.info(),
+      type: 'status', cameras, open_screens: [], detection,
       phone_override: this.journey.phoneOverride,
+      health: healthParts({
+        eye: 'chrome', detectionCamera, camera: cameras[detectionCamera] ?? null, detection,
+        faceFeed: this.faceFeed(), faceReports: this.faceReports(), likeSources: this.config.profile.like_sources,
+        clips: [...this.clipNames()].filter((name) => this.reelFace.clips.has(name)).length, clipsWanted: this.clipNames().size,
+      }),
     };
+  }
+
+  // What the open reel face screens last said about their face camera and tracking.
+  faceReports() {
+    const t = now();
+    return [...this.clients.values()]
+      .filter((client) => client.faceHealth && t - client.faceHealthAt < HEALTH_REPORT_SECONDS)
+      .map((client) => client.faceHealth);
+  }
+
+  clipNames() {
+    return new Set([...this.config.reel_face.voice.words.flat().map(clipName), 'scream']);
   }
 
   // The cameras
@@ -262,14 +304,42 @@ export class Eye {
   // The visit
 
   onDetection(event) {
-    if (event.type === 'phone') this.journey.onPhone(event.present, event.t);
-    else if (event.type === 'swipe') this.broadcast(event); // every detected swipe, for testing and tuning
+    if (event.type === 'phone') {
+      this.journey.onPhone(event.present, event.t);
+    } else if (event.type === 'swipe') {
+      if (this.journey.counting) this.profile.onSwipe(event);
+      this.broadcast(event); // every detected swipe, for testing and tuning
+    }
   }
 
   // A reel was watched long enough. It counts only once the phone is on the platform.
   onReel(reel) {
     this.journey.beginWatching(now());
-    if (this.journey.counting && this.reelFace.addReel(reel)) this.broadcast(this.reelFace.message());
+    if (this.journey.counting && this.reelFace.addReel(reel)) {
+      this.profile.addReel(reel.number, 'phone', reel.started, reel.watched, reel.stills.length);
+      this.broadcast(this.reelFace.message());
+      this.broadcast(this.profile.message());
+    }
+  }
+
+  // A like, from any source (config.yaml, profile.like_sources; the operator's test likes always work).
+  // It lands on the reel on the phone's screen if the tracker sees the phone, otherwise on the last reel counted.
+  like(source, t, id = null) {
+    if (source !== 'test' && !this.config.profile.like_sources[source]) return;
+    let problem = null;
+    if (!this.journey.counting) {
+      problem = 'Likes count once reels do: wait for the oracle to ask for reels, then watch one (or press +1 reel).';
+    } else {
+      const onScreen = this.journey.phone && this.journey.phoneOverride === null;
+      const like = this.profile.like(t, source, onScreen);
+      if (!like) {
+        problem = 'Nothing to like yet: watch a reel first (or press +1 reel).';
+      } else {
+        this.broadcast({ type: 'like', source, reel: like.reel, likes: this.profile.likes.length });
+        this.broadcast(this.profile.message());
+      }
+    }
+    if (problem && id !== null && source === 'test') this.notice(id, problem);
   }
 
   followVisit() {
@@ -277,9 +347,11 @@ export class Eye {
     if (this.journey.visits !== this.visitSeen) {
       this.visitSeen = this.journey.visits;
       this.reelFace.begin();
+      this.profile.begin();
       changed = true;
     } else if ((this.journey.stage === 'empty' || this.journey.stage === 'ended') && this.reelFace.on) {
       this.reelFace.end();
+      this.profile.end();
       changed = true;
     }
     if (this.journey.stage !== this.stageSeen) {
@@ -289,6 +361,7 @@ export class Eye {
     if (changed) {
       this.sampler.reset();
       this.broadcast(this.reelFace.message());
+      this.broadcast(this.profile.message());
     }
   }
 

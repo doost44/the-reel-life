@@ -75,6 +75,7 @@ const POSE_EASE = 0.6;  // how far each new picture moves the head's pose: a lit
 const EARS_FROM = 0.22; // skin is kept from this far above the chin, in face heights: the ears, not the neck
 const ARRIVAL = 2000;   // ms a tile takes to grow in, at the most, whether or not the shards it pulled have reached it
 const REPORT_EVERY = 1000; // ms between telling the eye someone is still there
+const HEALTH_EVERY = 2000; // ms between telling the eye how the face camera and tracking are doing (the operator panel)
 const SHARD_POINTS = 9; // points round a shard's torn edge
 const ORACLE_LETTER_MS = 88; // roughly how long the oracle's voice takes over a letter
 // Everything that breaks the picture, which clears as the face becomes the person.
@@ -867,6 +868,7 @@ export class ReelFaceView {
     const { face } = this.tracker;
     const lost = this.tracker.lostFor(now) > LOST_AFTER;
     this.report(Boolean(face && !lost), this.motion.moving, now);
+    this.reportHealth(picture, now);
     this.mouthOpen = lost ? 0 : this.voice.mouth(now);
     this.feelEnergy(stage, face && !lost ? face : null, seconds);
     if (this.gl) {
@@ -956,6 +958,24 @@ export class ReelFaceView {
       this.stage.send?.({ type: 'face_seen', present, moving });
       this.reported = { present, moving, at: now };
     }
+  }
+
+  // Tells the eye, every few seconds, whether pictures arrive from the face camera and whether
+  // MediaPipe is tracking, for the operator panel's health readout. Only screens report.
+  reportHealth(picture, now) {
+    if (this.stage.editing) return;
+    if (picture && picture !== this.healthPicture) {
+      this.healthPicture = picture;
+      this.pictureAt = now;
+    }
+    if (now - (this.healthAt ?? -Infinity) < HEALTH_EVERY) return;
+    this.healthAt = now;
+    this.stage.send?.({
+      type: 'face_health',
+      tracking: this.tracker.failed ? 'failed' : this.tracker.ready ? 'ready' : 'starting',
+      picture: now - (this.pictureAt ?? -Infinity) < HEALTH_EVERY,
+      face: this.tracker.lostFor(now) < HEALTH_EVERY,
+    });
   }
 
   // What the energy feels: someone there, how close, and where.

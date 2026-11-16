@@ -86,7 +86,8 @@ still:
 # of the reels they watch. Held in memory for one visit; nothing is saved.
 reel_face:
   # With no face camera chosen, this clip plays instead, labelled on screen as test tracking.
-  test_face_clip: "faces/bored.mp4"
+  # It's tracked in git (faces/ isn't), so GitHub Pages has it too: H.264, small (see web/assets/test-face/README.md).
+  test_face_clip: "web/assets/test-face/bored.mp4"
   min_watch_seconds: 1.2      # a reel counts if watched at least this long, not just scrolled past
   sample_seconds: 0.3         # how often a still of the phone screen is taken while a reel plays
   stills_per_reel: 3
@@ -102,13 +103,33 @@ reel_face:
       - ["again", "one more"]
       - ["don't stop", "more, more"]
     gap_seconds: [7, 2.5]     # between words: with no desire, and at full (more insistent as it rises)
-    clips: "voice"            # recorded words (more.wav, again.wav, dont-stop.wav...) play instead of the computer's voice when there
+    clips: "voice"            # recorded words (see voice/README.md) (more.wav, again.wav, dont-stop.wav...) play instead of the computer's voice when there
   # How far the face has got (eye/distortion.py): progress runs from 0 to 1, mostly with the
   # reels watched (full at full_at_reels), partly with the seconds watched (full at
   # full_at_seconds). How it looks along the way is set in the look editor (/look).
   distortion:
     full_at_reels: 30
     full_at_seconds: 180
+
+# What the system learns about a visitor, held in memory for one visit only
+# (eye/profile.py, web/js/eye/profile.js): every reel counted, how long it was
+# watched, whether it was liked, and, once there's a classifier, its category.
+# Each reel weighs on its category: likes most, then a full watch, then a partial
+# one; reels swiped past take a little away. Wiped with the visit like everything else.
+profile:
+  full_watch_seconds: 8       # watched this long counts as watched to the end (a reel's length isn't known)
+  weights:
+    like: 3                   # each like
+    full_watch: 1
+    partial_watch: 0.4        # watched, but less than full_watch_seconds
+    revisit: 0.5              # came back to it with a swipe back
+    skip: -0.15               # swiped past too soon to count: once skipped reels can be classified (phase 2), taken from their category
+  # Where likes can come from. Each one can be switched off here; the operator's
+  # test likes always work. key: L on a screen (and a like pad that types L).
+  like_sources:
+    key: true
+    heart: false              # seeing the heart on the phone's screen: not built yet (A3 phase 2)
+  unclassified: "Unclassified"  # a reel's category until there's a classifier (A3 phase 2)
 
 browser:
   # Chrome or Edge, for opening screens fullscreen on their monitors.

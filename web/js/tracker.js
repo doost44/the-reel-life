@@ -9,6 +9,7 @@
 export class FaceTracker {
   constructor() {
     this.ready = false;
+    this.failed = false;       // MediaPipe couldn't start (the operator panel shows it)
     this.face = null;          // the last face found: points (x, y 0-1 across the picture, z; three numbers each), shapes, picture size
     this.picture = null;       // ...and the picture it was found in, so the skin always matches the shape
     this.found = 0;            // counts faces found, so a view knows when there's a new one
@@ -19,9 +20,13 @@ export class FaceTracker {
     this.lastTime = 0;
     // A classic worker, not a module one: MediaPipe loads its runtime with importScripts, which modules can't use.
     this.worker = new Worker(new URL('./tracker-worker.js', import.meta.url));
+    this.worker.onerror = () => { this.failed = true; };
     this.worker.onmessage = ({ data }) => {
       if (data.type === 'ready') this.ready = true;
-      else if (data.type === 'failed') console.error('MediaPipe could not start:', data.error);
+      else if (data.type === 'failed') {
+        this.failed = true;
+        console.error('MediaPipe could not start:', data.error);
+      }
       else {
         this.busy = false;
         if (data.face) {
