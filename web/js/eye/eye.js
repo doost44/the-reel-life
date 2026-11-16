@@ -12,7 +12,7 @@ import { cameraModes, defaultSetup, isValid, rootUrl } from './config.js';
 import { pointOnScreen } from './hearts.js';
 import { base64Of } from './imaging.js';
 import { makePrivate, thumbnail } from './privacy.js';
-import { completeLook, describedLook } from './look-settings.js';
+import { categoryShares, completeLook, describedLook } from './look-settings.js';
 import { healthParts } from './health.js';
 import { Journey } from './journey.js';
 import { Profile } from './profile.js';
@@ -46,10 +46,12 @@ export class Eye {
     this.setup.look = completeLook(this.setup.look);
     const t = now();
     this.journey = new Journey(config.journey, (message) => this.broadcast(message), t);
-    this.reelFace = new ReelFace(config.reel_face, layout);
+    this.reelFace = new ReelFace(config.reel_face, layout, config.category_looks);
     this.reelFace.clips = clips;
     this.profile = new Profile(config.profile);
     this.classifier = new Classifier(config.classifier, rootUrl);
+    this.reelFace.describe = (number) => this.describeReel(number);
+    this.reelFace.shares = () => categoryShares(this.profile.categoryWeights());
     this.classifying = Promise.resolve(); // one picture at a time
     this.visitSeen = this.journey.visits;
     this.stageSeen = this.journey.stage;
@@ -190,6 +192,7 @@ export class Eye {
           this.profile.addReel(reel.number, 'test', reel.started, reel.watched, reel.stills.length);
           if (names.includes(message.category)) this.profile.classify(reel.number, this.testVerdict(message.category, names), 'test');
           else this.classifyReelSoon(reel);
+          if (message.liked) this.profile.like(t, 'test', false); // a liked test reel (no capture: its category is the operator's)
         }
         this.broadcast(this.reelFace.message());
         this.broadcast(this.profile.message());
@@ -434,6 +437,17 @@ export class Eye {
     if (visit === this.profile.visit && this.profile.classify(number, verdict, 'reel')) this.broadcast(this.profile.message());
   }
 
+  // What's known of a reel, for cutting it: its category, whether it was liked, and whether
+  // that's settled (classified, and any like's capture classified too, as that has the last word).
+  describeReel(number) {
+    const entry = this.profile.entry(number);
+    if (!entry) return { known: true }; // not in the profile (the visit's reels were cleared): no category
+    const waiting = this.profile.likes.some((like) => like.reel === number && !like.captured);
+    const broken = ['off', 'failed'].includes(this.classifier.info().state);
+    const known = broken || (entry.categoryFrom !== null && (entry.categoryFrom === 'test' || !waiting));
+    return { category: entry.category, liked: entry.likes > 0, known };
+  }
+
   // The operator's test category: as if the classifier had said so, with an ordinary confidence.
   testVerdict(category, names) {
     const random = this.reelFace.random;
@@ -487,7 +501,7 @@ export class Eye {
     this.journey.tick(t);
     this.followVisit();
     this.dropOldStill(t);
-    const job = this.reelFace.nextToPlan();
+    const job = this.reelFace.nextToPlan(t);
     if (job) this.plan(job);
     const tiles = this.reelFace.tick(t);
     for (const tile of tiles) this.broadcast(ReelFace.tileMessage(tile));

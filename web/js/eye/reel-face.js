@@ -3,7 +3,8 @@
 // (where it's described): change them together.
 //
 // Each reel is cut into tiles (formation.js) once the queue runs short, and
-// its tiles are released one at a time, so the face visibly builds. Held in
+// its tiles are released one at a time, so the face visibly builds. A reel
+// waits (a little) for its category, so its pieces land where it says. Held in
 // memory for one visit; nothing is saved.
 
 import { completeLook, defaultLook } from './look-settings.js';
@@ -20,8 +21,13 @@ export function clipName(text) {
 }
 
 export class ReelFace {
-  constructor(settings, faceLayout) {
+  constructor(settings, faceLayout, categories = {}) {
     this.settings = settings;
+    this.categories = categories ?? {}; // config.yaml's category_looks
+    // Set by the eye: what's known of a reel (its number): { category, liked, known }; and the
+    // categories' shares of the visit. Unset, reels are cut at once with no category.
+    this.describe = null;
+    this.shares = () => ({});
     this.override = null;       // the operator's intensity, for testing; null follows the session
     this.faceFeed = 'none';     // the face camera: camera, test (a recorded clip) or none; set by the eye
     this.speechPaused = false;  // the operator: no words for now
@@ -41,9 +47,10 @@ export class ReelFace {
     this.tiles = [];            // every tile planned, in order; shown once due
     this.shown = 0;             // how many of them are out
     this.scrubTo = null;        // show the face as it was after this many reels
-    this.planner = new Planner(this.settings, this.faceMap, this.visit * 1000 + this.random.integers(1000));
+    this.planner = new Planner(this.settings, this.faceMap, this.visit * 1000 + this.random.integers(1000), this.categories);
     this.planned_ = 0;          // reels planned into tiles so far
     this.job = null;            // the reel being cut now, if any
+    this.waiting = null;        // [the next reel to cut, since when it's waited for its category]
   }
 
   // What happens
@@ -91,15 +98,24 @@ export class ReelFace {
     this.override = value === null ? null : Math.min(1, Math.max(0, Number(value)));
   }
 
-  // The next reel to cut, once the queue of tiles runs short; one at a time.
-  nextToPlan() {
+  // The next reel to cut, once the queue of tiles runs short; one at a time. It waits
+  // (up to category_looks.wait_seconds) for its category, so its pieces land where it says.
+  nextToPlan(t = 0) {
     const waiting = this.tiles.length - this.shown;
     if (this.job || this.planned_ >= this.reels.length || waiting >= this.settings.queue_tiles) return null;
     const reel = this.reels[this.planned_];
+    const known = this.describe ? this.describe(reel.number) : { known: true };
+    if (!known.known) {
+      if (this.waiting === null || this.waiting[0] !== reel.number) this.waiting = [reel.number, t];
+      if (t - this.waiting[1] < (this.categories.wait_seconds ?? 0)) return null;
+    }
     this.planned_ += 1;
     const planner = this.planner;
     const look = structuredClone(this.look);
-    this.job = { reel, plan: () => planner.plan(reel, look) };
+    const category = known.category ?? null;
+    const liked = Boolean(known.liked);
+    const shares = this.shares();
+    this.job = { reel, plan: () => planner.plan(reel, look, category, liked, shares) };
     return this.job;
   }
 
@@ -207,13 +223,15 @@ export class ReelFace {
       reel_marks: this.reelMarks(),
       speech_paused: this.speechPaused,
       muted: this.muted,
+      categories: this.on ? this.shares() : {}, // each category's share of the visit: the look's pushes
+      liked_pulse: this.categories.liked?.pulse_seconds ?? 1.6, // how long a liked fragment beats
     };
   }
 
   static tileMessage(tile, animate = true) {
     return {
       type: 'tile', number: tile.number, reel: tile.reel, rect: tile.rect, outline: tile.outline,
-      layer: tile.layer, image: tile.image, animate,
+      layer: tile.layer, category: tile.category ?? null, liked: Boolean(tile.liked), image: tile.image, animate,
     };
   }
 
