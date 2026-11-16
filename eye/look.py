@@ -81,6 +81,7 @@ OFF = {"melt": 0, "flow": 0, "mosh": 0, "pixelate": 1, "jpeg": 0, "stretch": 0, 
 
 REGIONS = ["eyes", "brows", "forehead", "nose", "mouth", "cheeks", "jaw", "skin", "whole"]
 MATERIALS = ["none", "gloss", "porcelain", "gold", "deepfried", "glassy", "tight", "cracked", "sunset", "smear"]
+BEHAVIOURS = ["none", "hungry", "preen", "orbit", "bounce", "drift", "tense", "jitter", "sprawl", "pulse"]
 _SETTING = {name: (label, low, high, step) for _, group in SETTINGS for name, label, low, high, step, *_ in group}
 _categories: dict = {}  # config.yaml's category_looks.categories, set once by the eye
 
@@ -92,17 +93,21 @@ def set_categories(categories: dict | None) -> None:
         pushes = {setting: list(ramp) for setting, ramp in (category.get("pushes") or {}).items() if setting in _SETTING}
         _categories[name] = {"regions": [region for region in category.get("regions", []) if region in REGIONS],
                              "material": category.get("material") if category.get("material") in MATERIALS else "none",
-                             "material_amount": list(category.get("material_amount", [0.5, 0.9])), "pushes": pushes}
+                             "material_amount": list(category.get("material_amount", [0.5, 0.9])), "pushes": pushes,
+                             "shards": category.get("shards") if category.get("shards") in BEHAVIOURS else "none",
+                             "shards_amount": list(category.get("shards_amount", [0.6, 1.0]))}
 
 
 def default_look() -> dict:
     values = {name: [start, full] for _, group in SETTINGS for name, _, _, _, _, start, full, _ in group}
     for name, category in _categories.items():
         values[f"{name}/material"] = list(category["material_amount"])
+        values[f"{name}/shards"] = list(category["shards_amount"])
         values.update({f"{name}/{setting}": list(ramp) for setting, ramp in category["pushes"].items()})
     return {
         "values": values,
-        "categories": {name: {"regions": list(category["regions"]), "material": category["material"]}
+        "categories": {name: {"regions": list(category["regions"]), "material": category["material"],
+                              "shards": category["shards"]}
                        for name, category in _categories.items()},
         "background": "",
         "presets": {},
@@ -121,7 +126,8 @@ def complete(look: dict | None) -> dict:
         regions = saved.get("regions")
         categories[name] = {
             "regions": [region for region in regions if region in REGIONS] if isinstance(regions, list) else default["regions"],
-            "material": saved.get("material") if saved.get("material") in MATERIALS else default["material"]}
+            "material": saved.get("material") if saved.get("material") in MATERIALS else default["material"],
+            "shards": saved.get("shards") if saved.get("shards") in BEHAVIOURS else default["shards"]}
     return {**full, **look, "values": values, "categories": categories}
 
 
@@ -159,6 +165,9 @@ def described() -> list:
         settings.append({"name": f"{name}/material", "category": name, "label": "Material", "min": 0, "max": 1, "step": 0.01,
                          "default": list(category["material_amount"]), "off": None,
                          "help": f"How strongly {name}'s fragments take its material as they land"})
+        settings.append({"name": f"{name}/shards", "category": name, "label": "Shards", "min": 0, "max": 1.5, "step": 0.01,
+                         "default": list(category["shards_amount"]), "off": None,
+                         "help": f"How strongly {name}'s share of the energy's shards behave like it"})
         for setting, ramp in category["pushes"].items():
             label, low, high, step = _SETTING[setting]
             span = high - low
@@ -167,6 +176,8 @@ def described() -> list:
                              "help": f"How far {name} pushes {label} when the whole visit is {name} (less as its share falls)"})
     if settings:
         groups.append({"group": "Categories", "settings": settings, "regions": REGIONS, "materials": MATERIALS,
-                       "defaults": {name: {"regions": list(category["regions"]), "material": category["material"]}
+                       "behaviours": BEHAVIOURS,
+                       "defaults": {name: {"regions": list(category["regions"]), "material": category["material"],
+                                           "shards": category["shards"]}
                                     for name, category in _categories.items()}})
     return groups

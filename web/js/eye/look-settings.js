@@ -67,6 +67,7 @@ const OFF = {
 
 export const REGIONS = ['eyes', 'brows', 'forehead', 'nose', 'mouth', 'cheeks', 'jaw', 'skin', 'whole'];
 export const MATERIALS = ['none', 'gloss', 'porcelain', 'gold', 'deepfried', 'glassy', 'tight', 'cracked', 'sunset', 'smear'];
+export const BEHAVIOURS = ['none', 'hungry', 'preen', 'orbit', 'bounce', 'drift', 'tense', 'jitter', 'sprawl', 'pulse'];
 const SETTING = Object.fromEntries(SETTINGS.flatMap(([, group]) => group.map(([name, label, low, high, step]) => [name, [label, low, high, step]])));
 let categories = {}; // config.yaml's category_looks.categories, set once by the eye
 
@@ -81,6 +82,8 @@ export function setCategories(given) {
       material: MATERIALS.includes(category.material) ? category.material : 'none',
       materialAmount: [...(category.material_amount ?? [0.5, 0.9])],
       pushes,
+      shards: BEHAVIOURS.includes(category.shards) ? category.shards : 'none',
+      shardsAmount: [...(category.shards_amount ?? [0.6, 1.0])],
     };
   }
 }
@@ -90,10 +93,13 @@ export function defaultLook() {
   for (const [, group] of SETTINGS) for (const [name, , , , , start, full] of group) values[name] = [start, full];
   for (const [name, category] of Object.entries(categories)) {
     values[`${name}/material`] = [...category.materialAmount];
+    values[`${name}/shards`] = [...category.shardsAmount];
     for (const [setting, ramp] of Object.entries(category.pushes)) values[`${name}/${setting}`] = [...ramp];
   }
   const looks = {};
-  for (const [name, category] of Object.entries(categories)) looks[name] = { regions: [...category.regions], material: category.material };
+  for (const [name, category] of Object.entries(categories)) {
+    looks[name] = { regions: [...category.regions], material: category.material, shards: category.shards };
+  }
   return { values, categories: looks, background: '', presets: {} };
 }
 
@@ -109,6 +115,7 @@ export function completeLook(look) {
     looks[name] = {
       regions: Array.isArray(saved.regions) ? saved.regions.filter((region) => REGIONS.includes(region)) : fallback.regions,
       material: MATERIALS.includes(saved.material) ? saved.material : fallback.material,
+      shards: BEHAVIOURS.includes(saved.shards) ? saved.shards : fallback.shards,
     };
   }
   return { ...full, ...look, values, categories: looks };
@@ -165,6 +172,8 @@ export function describedLook() {
   for (const [name, category] of Object.entries(categories)) {
     settings.push({ name: `${name}/material`, category: name, label: 'Material', min: 0, max: 1, step: 0.01,
       default: [...category.materialAmount], off: null, help: `How strongly ${name}'s fragments take its material as they land` });
+    settings.push({ name: `${name}/shards`, category: name, label: 'Shards', min: 0, max: 1.5, step: 0.01,
+      default: [...category.shardsAmount], off: null, help: `How strongly ${name}'s share of the energy's shards behave like it` });
     for (const [setting, ramp] of Object.entries(category.pushes)) {
       const [label, low, high, step] = SETTING[setting];
       const span = high - low;
@@ -174,8 +183,10 @@ export function describedLook() {
   }
   if (settings.length) {
     const defaults = {};
-    for (const [name, category] of Object.entries(categories)) defaults[name] = { regions: [...category.regions], material: category.material };
-    groups.push({ group: 'Categories', settings, regions: REGIONS, materials: MATERIALS, defaults });
+    for (const [name, category] of Object.entries(categories)) {
+      defaults[name] = { regions: [...category.regions], material: category.material, shards: category.shards };
+    }
+    groups.push({ group: 'Categories', settings, regions: REGIONS, materials: MATERIALS, behaviours: BEHAVIOURS, defaults });
   }
   return groups;
 }
