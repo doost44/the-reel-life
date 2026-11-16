@@ -17,8 +17,12 @@ export class Profile {
 
   wipe() {
     this.on = false;
-    this.entries = [];  // { number, source, started, watched, stills, likes, revisited, category, confidence, runnerUp, captures }
-    this.likes = [];    // { t, source, reel } (reel null while it's the one on screen, not yet recorded)
+    // { number, source, started, watched, stills, likes, revisited, category, confidence, runnerUp,
+    //   runnerUpConfidence, guess, categoryFrom, captures }
+    this.entries = [];
+    // { number, t, source, reel (null while it's the one on screen, not yet recorded), captured, verdict, thumb }
+    this.likes = [];
+    this.likesMade = 0;
     this.swipes = 0;
     this.back = 0;
     this.unlikes = 0;
@@ -61,7 +65,7 @@ export class Profile {
     if (!this.on) return null;
     const entry = {
       number, source, started, watched, stills, likes: 0, revisited: false,
-      category: null, confidence: null, runnerUp: null, captures: 0,
+      category: null, confidence: null, runnerUp: null, runnerUpConfidence: null, guess: null, categoryFrom: null, captures: 0,
     };
     // It came back to this reel if the swipe that brought it on screen was a swipe back.
     const arrived = this.swipeLog.filter(([t]) => t < started);
@@ -71,6 +75,10 @@ export class Profile {
       if (like.reel === null && like.t >= started - LIKE_WINDOW_BEFORE && like.t <= ended + LIKE_WINDOW_AFTER) {
         like.reel = number;
         entry.likes += 1;
+        if (like.captured) {
+          entry.captures += 1;
+          Profile.apply(entry, like.verdict, 'capture');
+        }
       }
     }
     this.entries.push(entry);
@@ -81,15 +89,17 @@ export class Profile {
   like(t, source, onScreen) {
     if (!this.on) return null;
     let like;
+    const made = { number: this.likesMade + 1, t, source, captured: false, verdict: null, thumb: null };
     if (onScreen) {
-      like = { t, source, reel: null };
+      like = { ...made, reel: null };
     } else if (this.entries.length) {
       const last = this.entries[this.entries.length - 1];
-      like = { t, source, reel: last.number };
+      like = { ...made, reel: last.number };
       last.likes += 1;
     } else {
       return null;
     }
+    this.likesMade += 1;
     this.likes.push(like);
     return like;
   }
@@ -99,17 +109,42 @@ export class Profile {
     if (!(this.on && this.likes.length)) return false;
     const like = this.likes.pop();
     const entry = this.entry(like.reel);
-    if (entry) entry.likes = Math.max(0, entry.likes - 1);
+    if (entry) {
+      entry.likes = Math.max(0, entry.likes - 1);
+      entry.captures = Math.max(0, entry.captures - (like.captured ? 1 : 0));
+    }
     this.unlikes += 1;
     return true;
   }
 
-  // The classifier's verdict on a reel (phase 2).
-  classify(number, category, confidence, runnerUp = null) {
+  // The classifier's verdict on a reel, from a still of it (reel) or the operator's (test).
+  // A liked reel's capture has the last word, so a still's verdict never replaces it.
+  classify(number, verdict, source = 'reel') {
     const entry = this.entry(number);
-    if (!entry) return false;
-    Object.assign(entry, { category, confidence: Number(confidence), runnerUp });
+    if (!entry || (entry.categoryFrom === 'capture' && source !== 'capture')) return false;
+    Profile.apply(entry, verdict, source);
     return true;
+  }
+
+  // A like's capture, classified (like number). Its reel's category comes from it from now on.
+  captured(number, verdict, thumb) {
+    const like = this.likes.find((candidate) => candidate.number === number);
+    if (!like || like.captured) return null;
+    Object.assign(like, { captured: true, verdict, thumb });
+    const entry = this.entry(like.reel);
+    if (entry) {
+      entry.captures += 1;
+      Profile.apply(entry, verdict, 'capture');
+    }
+    return like;
+  }
+
+  static apply(entry, verdict, source) {
+    if (!verdict || (entry.categoryFrom === 'test' && source !== 'test')) return; // the operator's test category stands
+    Object.assign(entry, {
+      category: verdict.category, confidence: Number(verdict.confidence), runnerUp: verdict.runner_up ?? null,
+      runnerUpConfidence: verdict.runner_up_confidence ?? null, guess: verdict.guess ?? null, categoryFrom: source,
+    });
   }
 
   entry(number) {
@@ -145,8 +180,17 @@ export class Profile {
     return {
       reels: this.entries.length,
       stills: this.entries.reduce((sum, entry) => sum + entry.stills, 0),
-      captures: this.entries.reduce((sum, entry) => sum + entry.captures, 0),
+      captures: this.likes.filter((like) => like.captured).length,
       likes: this.likes.length,
+    };
+  }
+
+  static likeMessage(like) {
+    const verdict = like.verdict ?? {};
+    return {
+      number: like.number, reel: like.reel, source: like.source, captured: like.captured,
+      category: verdict.category ?? null, confidence: verdict.confidence ?? null,
+      runner_up: verdict.runner_up ?? null, runner_up_confidence: verdict.runner_up_confidence ?? null, thumb: like.thumb,
     };
   }
 
@@ -169,8 +213,10 @@ export class Profile {
       top: Object.keys(weights)[0] ?? null,
       recent: this.entries.slice(-8).map((entry) => ({
         number: entry.number, source: entry.source, watched: entry.watched, likes: entry.likes, revisited: entry.revisited,
-        category: entry.category, confidence: entry.confidence, runner_up: entry.runnerUp, weight: round(this.weightOf(entry), 2),
+        category: entry.category, confidence: entry.confidence, runner_up: entry.runnerUp, category_from: entry.categoryFrom,
+        weight: round(this.weightOf(entry), 2),
       })),
+      liked: this.likes.slice(-6).map((like) => Profile.likeMessage(like)),
       held: this.held(),
     };
   }

@@ -3,6 +3,8 @@ numpy>=2.0
 aiohttp>=3.10
 ruamel.yaml>=0.18
 segno>=1.6
+# The classifier (CLIP) runs on this.
+onnxruntime>=1.20
 # A Mac lists its cameras and displays through these.
 pyobjc-framework-AVFoundation>=11; sys_platform == "darwin"
 pyobjc-framework-Quartz>=11; sys_platform == "darwin"

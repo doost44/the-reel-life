@@ -77,6 +77,10 @@
             <button id="test-unlike" class="small ghost" title="The last like taken back">Unlike</button>
           </div>
           <div class="button-row">
+            <select id="test-category-name" class="small" title="The category for the test reel"></select>
+            <button id="test-category" class="small" title="A test reel already sorted into this category, as if the classifier had said so (with an ordinary confidence)">+1 reel in category</button>
+          </div>
+          <div class="button-row">
             <button id="speech-pause" class="small ghost" title="The face stops saying words for now">Pause speech</button>
             <button id="speech-mute" class="small ghost" title="The face keeps mouthing its words and showing them, without sound">Mute</button>
             <button id="reelface-still" class="small ghost" title="Saves the reel face as it is now as a picture, with this browser (editor only; for yourself or people who've agreed)">Save a still</button>
@@ -102,9 +106,10 @@
             <div><div class="stat-label">Swipes back</div><div id="profile-back" class="mini-value">0</div></div>
             <div><div class="stat-label">Skipped</div><div id="profile-skipped" class="mini-value">0</div></div>
           </div>
+          <ul id="profile-liked" class="liked" title="Each like: its capture (cut and blurred, then shrunk), what the classifier made of it, how sure, and the runner-up"></ul>
           <ul id="profile-weights" class="weights" title="Each category's weight: likes count most, then a reel watched to the end, then one watched partly (config.yaml, profile)"></ul>
           <p id="profile-readout" class="note"></p>
-          <p class="note">The visit profile: every reel, how long, liked or not, and (once there's a classifier) its category. In memory only, wiped with the visit.</p>
+          <p class="note">The visit profile: every reel, how long, liked or not, and its category. In memory only, wiped with the visit.</p>
         </section>
 
         <section data-tab="cameras">

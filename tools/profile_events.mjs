@@ -23,6 +23,7 @@ for (const [kind, ...args] of events) {
   else if (kind === 'like') out.push(['liked', profile.like(...args)?.reel ?? null]);
   else if (kind === 'unlike') profile.unlike();
   else if (kind === 'classify') profile.classify(...args);
+  else if (kind === 'captured') profile.captured(...args);
   out.push(profile.message());
 }
 process.stdout.write(`${JSON.stringify(out)}\n`);

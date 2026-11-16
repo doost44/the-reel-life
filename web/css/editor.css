@@ -181,3 +181,8 @@ h2 {
 .weights li { display: grid; grid-template-columns: 104px 1fr 40px; gap: 8px; align-items: center; }
 .weights li .bar { height: 6px; border-radius: 3px; background: var(--hot); }
 .weights li .value { text-align: right; font-variant-numeric: tabular-nums; color: var(--muted); }
+.liked { list-style: none; margin: 4px 0; padding: 0; display: grid; gap: 6px; font-size: 12px; }
+.liked li { display: grid; grid-template-columns: 32px 1fr auto; gap: 8px; align-items: center; }
+.liked img, .liked .no-thumb { width: 32px; height: 44px; object-fit: cover; border-radius: 3px; image-rendering: pixelated; background: var(--faint); }
+.liked .what { display: grid; }
+.liked .what small, .liked .value { color: var(--muted); }

@@ -7,17 +7,20 @@
 // sampler (the reel face's stills).
 
 import { Detector, WARP_HEIGHT, WARP_WIDTH } from './detector.js';
+import { HeartWatcher } from './hearts.js';
 import { cvLib, withMats } from './imaging.js';
 
 export const DETECTION_VIEW = '@detection';
 const VIEW_EVERY = 1 / 15; // the view only needs to be watchable, not every frame
 
 export class SwipeWatcher {
-  constructor(settings, onEvent, sampler) {
+  constructor(settings, onEvent, sampler, hearts = null, rotate = 0) {
     this.settings = settings;
     this.onEvent = onEvent;
     this.sampler = sampler;
     this.detector = new Detector(settings);
+    this.hearts = hearts ? new HeartWatcher(hearts) : null;
+    this.rotate = rotate;
     this.cameraName = '';
     this.frameSize = [0, 0];
     this.viewAt = -1e9;
@@ -34,6 +37,11 @@ export class SwipeWatcher {
     this.detector.lock(zone);
   }
 
+  // Where the like button is on the upright screen (fractions), or null.
+  likeButton(button) {
+    this.hearts?.setButton(button);
+  }
+
   info() {
     const detector = this.detector;
     return {
@@ -45,6 +53,10 @@ export class SwipeWatcher {
       last: detector.lastSwipe,
       recording: null,
       recording_folder: null,
+      like_button: Boolean(this.hearts?.button),
+      heart: this.hearts?.state ?? null,
+      heart_red: this.hearts ? Math.round(this.hearts.share * 100) / 100 : null,
+      heart_likes: this.hearts?.likes ?? 0,
     };
   }
 
@@ -54,6 +66,12 @@ export class SwipeWatcher {
     for (const event of this.detector.process(frame, t)) {
       this.onEvent(event);
       if (event.type === 'swipe') this.sampler?.offerSwipe(event);
+      if (event.type === 'swipe') this.hearts?.reset(); // a new reel: its button is learnt afresh
+    }
+    if (this.hearts) {
+      const detector = this.detector;
+      const quad = detector.present ? detector.quad : null;
+      for (const event of this.hearts.process(frame, quad, this.rotate, t, detector.run === null, detector.landedAt)) this.onEvent(event);
     }
     if (this.sampler && this.detector.present && this.detector.quad !== null) this.sampler.offerFrame(frame, this.detector.quad, t);
     if (wantView && !this.viewBusy && t - this.viewAt >= VIEW_EVERY) {
@@ -91,6 +109,21 @@ export class SwipeWatcher {
         ctx.imageSmoothingEnabled = false;
         ctx.drawImage(small, frame.cols - WARP_WIDTH * 2, 0, WARP_WIDTH * 2, WARP_HEIGHT * 2);
       }
+    }
+    const hearts = this.hearts;
+    if (hearts?.box) {
+      // The square watched for the like button: red when it reads red.
+      const colour = hearts.state === 'red' ? 'rgb(255, 60, 60)' : '#fff';
+      ctx.strokeStyle = colour;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      hearts.box.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)));
+      ctx.closePath();
+      ctx.stroke();
+      ctx.fillStyle = colour;
+      ctx.font = '12px monospace';
+      ctx.fillText(`like ${hearts.state ?? '?'} ${Math.round(hearts.share * 100)}%`,
+        Math.min(...hearts.box.map(([x]) => x)), Math.max(...hearts.box.map(([, y]) => y)) + 16);
     }
     const last = detector.lastSwipe;
     const readout = detector.readout;

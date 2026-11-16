@@ -22,6 +22,9 @@ phone camera ─▶ the phone on the platform          face camera ─▶ the pa
         journey.py      the visit: a face seen, the oracle, the phone placed, the face forming
         reel_face.py    the reels counted, their tiles released one by one, desire, the words
         profile.py      the visit profile: each reel's dwell, likes, swipes back, category; weights per category
+        hearts.py       a like seen on the phone's screen: the like button turning red
+        privacy.py      a capture made private: cut to the video, text blurred, a tiny thumbnail
+        classifier.py   CLIP (ONNX Runtime): each reel and each like's capture sorted into a category
         health.py       the health of every part, for the operator panel
         formation.py    each reel torn into fragments of the face, and how damaged
         look.py         every setting of the face's look (tuned in /look)
@@ -336,7 +339,14 @@ $python = "$env:USERPROFILE\.venvs\reel-life\Scripts\python.exe"
 & $python tools\list_cameras.py              # every camera and monitor the eye can see
 & $python tools\check_browser_eye.py <clip>  # the Python and Chrome swipe detectors side by side (needs Node.js)
 & $python tools\check_profile.py             # the Python and Chrome visit profiles on the same made-up visit, and empty after it
+& $python tools\make_test_clip.py --seed 6 --likes                        # the same, with some reels liked (the heart turns red) and a .likes.csv
+& $python tools\detect_likes.py <clip.avi> --button 0.9,0.436 [--zone ...] # the like detector on a clip, scored against its .likes.csv
+& $python tools\check_browser_eye.py <clip> --button 0.9,0.436            # ...and the Python and Chrome like detectors side by side
+& $python tools\embed_categories.py         # after changing the categories in config.yaml: remakes web/vendor/clip/categories.json
 ```
+
+`embed_categories.py` needs `pip install tokenizers` and downloads CLIP's text model once (about 65 MB, into
+`~/.cache/the-reel-life`); the exhibit itself never needs either.
 
 ## Footage for presenting
 
@@ -352,13 +362,49 @@ there's a classifier, its category with the classifier's confidence and runner-u
 category: a like counts most, then a reel watched to the end, then one watched partly, and coming back to it
 adds a little (`config.yaml`, `profile.weights`). Swipes that didn't end a counted reel are counted as skips.
 
-A **like** can come from any source and goes through the same path: the operator's **+1 test like**, the L key
-on a screen (so a like pad or a Makey Makey on the platform that types L works with no extra code), and later
-the heart seen on the phone's screen (`profile.like_sources` switches each one). A like lands on the reel on
+A **like** can come from any source and goes through the same path: the operator's **+1 test like**, a key on
+a screen (L by default, `profile.like_keys`, so a like pad or a Makey Makey on the platform that types L works
+with no extra code), and the heart seen on the phone's screen (`profile.like_sources` switches each one). A like lands on the reel on
 the phone's screen: that reel has no record until it's swiped away, so the like waits and joins it then. With
 no phone being tracked (Phone placed by hand, test reels) it lands on the last reel counted.
 
 The profile is held in memory only and wiped with the visit, like the face.
+
+**The heart on the phone's screen** (`eye/hearts.py`, `web/js/eye/hearts.js`). Nobody outside the app can know
+a heart was tapped, and visitors install and log in to nothing, so the eye looks. Once, click **Click the like
+button** in the Detection panel, then the heart on the phone in the camera picture (it's saved as a point on the
+upright screen, `setup.json` `like_button`). Every frame the eye straightens a small square round it and
+measures how much of it is the heart's red. Red that holds for a few frames while the screen is still is a like,
+and red going away is an unlike. A double-tap on the video fills the same heart, so that's caught too. After a
+swipe, the new reel's heart is read once to learn whether it was already liked, which isn't a like. Nothing is
+read mid-swipe, or while the phone's outline has moved since the heart was last read (a thumb over a corner can
+pull a found outline off, and the square with it). So **lock the phone position**: the Health panel says so
+until it is. Thresholds are in `config.yaml`, `hearts`.
+
+On the synthetic clip with liked reels (`make_test_clip.py --likes`), with the phone locked, it catches 4 of 4
+likes, makes none up and sees each about 70 ms after the tap, and both eyes see the same. Unlocked, a thumb pulls
+the outline off and one like is seen 12 s late (still on the right reel). It hasn't been tried on a real phone
+yet: record some liking with `tools/record.py` and run `detect_likes.py` on it (with a `.likes.csv` of when
+you tapped).
+
+**What a reel is.** Each reel counted is sorted into one of the categories in `config.yaml` (`classifier`):
+Food, Beauty / fashion, Money / luxury, Comedy / memes, Pets / cute, Fitness / sport, Outrage / news,
+Travel / scenery and Music / dance. The classifier is CLIP (ViT-B/32, the image half, 4-bit, in
+`web/vendor/clip`), run on the computer itself by ONNX Runtime (in Chrome, ONNX Runtime Web in a worker). No
+picture goes online. Each category is a few sentences ("a photo of a plate of food", ...), turned into one point
+by `tools/embed_categories.py`, and a picture goes to the nearest. Below `classifier.floor` of confidence it's
+**Unreadable**; the runner-up is kept too. It takes about 50 ms a picture in Python and 350 ms in Chrome, off
+the swipe detector's path. On six test photos (a beach, a car, a DJ, a dog, a gym, a pizza) it got all six.
+
+**A like's capture.** A like also takes a capture: the sampler keeps a still of the screen every 0.1 s for
+1.5 s, and the sharpest one from just before the tap is used (the tap puts a thumb on the screen). It's made
+private before anything else sees it (`eye/privacy.py`): cut to the video (the top bar, the caption and
+username at the bottom and the rail on the right go: `capture.crop`), and anything that looks like text is
+blurred. The classifier sorts it, and a liked reel's category comes from its capture from then on. All that's
+kept is a tiny, blurry thumbnail (54 pixels wide) for the operator's panel, in memory, wiped with the visit.
+
+**+1 reel in category** in the Visit tab adds a test reel already sorted, so the weights can be tried without a
+phone.
 
 ## Privacy
 
@@ -368,8 +414,8 @@ The profile is held in memory only and wiped with the visit, like the face.
   GitHub Pages, but nothing goes back: the cameras, the phone tracker and MediaPipe all run in the browser,
   and the pages only talk to each other. It keeps the setup in the browser's storage, never anything of a visit.
 - **Nothing about a visit is saved.** The face camera's pictures go to the screens live and are dropped.
-  The reels' stills, the tiles, the history, the visit profile (likes and all) and the face exist only in
-  memory, for one visit, and are wiped
+  The reels' stills, the tiles, the history, the visit profile (likes and all), the likes' captures and
+  their thumbnails, and the face exist only in memory, for one visit, and are wiped
   when it ends, when a new one starts (visits are counted, so even one that starts the instant the last
   ends gets a clean slate), or on reset.
 - **The visitor's still** is held in memory only, for up to five minutes, and deleted as soon as a new visit
@@ -380,9 +426,19 @@ The profile is held in memory only and wiped with the visit, like the face.
   notifications included. A sign at the entrance keeps the surprise while being honest: that a camera sees them
   and their phone's screen, shown on screen and kept for nobody unless they scan the code.
 
+- **A like's capture** is cut to the video and its text blurred before the classifier sees it, so
+  notifications, usernames, messages and captions are left out. The classifier runs on this computer.
+
 ## Hardware notes
 
 - The capture card is a MacroSilicon MS2130 ("USB3 Video", HDMI in): 720×480 at up to 60 fps.
 - Set the converter in front of it to **AV**. It shows a blue screen with "SV" or "AV" when it has no input.
 - **Turn off the camcorder's power save** and its date and time display.
 - The camcorder's menus show on the AV output, so focus and exposure can be set with the LCD broken.
+
+## Credits
+
+- **CLIP** (ViT-B/32), OpenAI, MIT; converted to ONNX and quantised by Xenova (`web/vendor/clip`).
+- **ONNX Runtime** and **ONNX Runtime Web**, Microsoft, MIT (`web/vendor/onnxruntime-web`).
+- **OpenCV** and **OpenCV.js**, Apache 2.0 (`web/vendor/opencv`). **MediaPipe**, Google, Apache 2.0
+  (`web/vendor/mediapipe`). **js-yaml**, MIT (`web/vendor/js-yaml`).
