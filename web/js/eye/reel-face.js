@@ -66,11 +66,13 @@ export class ReelFace {
     return true;
   }
 
-  // Made-up reels, for trying it without a phone.
+  // Made-up reels, for trying it without a phone. Returns the ones added.
   addTestReels(count, t) {
-    if (!this.on) return false;
-    for (let i = 0; i < Math.max(0, Math.min(count, 50)); i++) this.reels.push(testReel(this.reels.length + 1, t, this.random));
-    return true;
+    if (!this.on) return [];
+    const added = [];
+    for (let i = 0; i < Math.max(0, Math.min(count, 50)); i++) added.push(testReel(this.reels.length + 1 + i, t, this.random));
+    this.reels.push(...added);
+    return added;
   }
 
   // Back to no face at all: the reels so far are dropped (the visit goes on).
