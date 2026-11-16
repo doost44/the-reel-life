@@ -225,6 +225,8 @@ export class ReelFace {
       muted: this.muted,
       categories: this.on ? this.shares() : {}, // each category's share of the visit: the look's pushes
       liked_pulse: this.categories.liked?.pulse_seconds ?? 1.6, // how long a liked fragment beats
+      shards_coverage: this.categories.shards_coverage ?? [0.25, 1.0], // the share of shards with a personality
+      beat_bpm: this.categories.beat_bpm ?? 118,
     };
   }
 

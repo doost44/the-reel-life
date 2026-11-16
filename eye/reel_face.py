@@ -252,6 +252,8 @@ class ReelFace:
             "muted": self.muted,
             "categories": self.shares() if self.on else {},  # each category's share of the visit: the look's pushes
             "liked_pulse": self.categories.get("liked", {}).get("pulse_seconds", 1.6),  # how long a liked fragment beats
+            "shards_coverage": self.categories.get("shards_coverage", [0.25, 1.0]),  # the share of shards with a personality
+            "beat_bpm": self.categories.get("beat_bpm", 118),
         }
 
     @staticmethod
