@@ -10,8 +10,9 @@
 // setup.json and reach every screen at once; Looks keeps them by name.
 //
 // The Categories group: for each category the classifier knows, the regions of
-// the face its fragments claim, their material, and the settings it pushes (as
-// far as its share of the visit). Test reels in that category try it out.
+// the face its fragments claim, their material, how its share of the energy's
+// shards behave (its personality), and the settings it pushes (as far as its
+// share of the visit). Test reels in that category try it out.
 //
 // The preview is a screen like any other: it tracks the face camera and tells
 // the eye when it sees someone, so the journey runs with no other screen open.
@@ -499,7 +500,7 @@ function buildSettings() {
 function buildCategories(open) {
   const names = [...new Set(open.settings.map((setting) => setting.category))];
   if (!names.includes(category)) category = names[0];
-  const chosen = setup.look.categories[category] ?? { regions: [], material: 'none' };
+  const chosen = setup.look.categories[category] ?? { regions: [], material: 'none', shards: 'none' };
   const toggle = (region) => {
     chosen.regions = chosen.regions.includes(region) ? chosen.regions.filter((other) => other !== region) : [...chosen.regions, region];
     setup.look.categories[category] = chosen;
@@ -511,6 +512,13 @@ function buildCategories(open) {
     open.materials.map((kind) => el('option', { value: kind, textContent: kind, selected: kind === chosen.material })));
   material.addEventListener('change', () => {
     chosen.material = material.value;
+    setup.look.categories[category] = chosen;
+    edited();
+  });
+  const shards = el('select', { title: 'How its share of the energy\'s shards behave: its personality' },
+    (open.behaviours ?? ['none']).map((kind) => el('option', { value: kind, textContent: kind, selected: kind === chosen.shards })));
+  shards.addEventListener('change', () => {
+    chosen.shards = shards.value;
     setup.look.categories[category] = chosen;
     edited();
   });
@@ -527,6 +535,7 @@ function buildCategories(open) {
           el('button', { textContent: region, title: 'Its fragments land here: click to add or take away', onclick: () => toggle(region) }),
         ])))]),
       el('div', { className: 'category-row' }, [el('span', { className: 'category-label', textContent: 'Material' }), material]),
+      el('div', { className: 'category-row' }, [el('span', { className: 'category-label', textContent: 'Shards' }), shards]),
       el('div', { className: 'category-row' }, [el('span', { className: 'category-label', textContent: 'Try it' }),
         el('div', { className: 'chips' }, [
           el('span', { className: 'chip' }, [el('button', { textContent: '+1 reel', title: `A test reel sorted into ${category}`, onclick: () => test(false) })]),
