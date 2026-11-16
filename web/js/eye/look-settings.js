@@ -2,7 +2,9 @@
 // Chrome version's copy of eye/look.py: change both together.
 //
 // Each setting has two values, one for the first reels and one for the full
-// face, and the face slides from one to the other as it forms.
+// face, and the face slides from one to the other as it forms. And the
+// categories: each pushes some settings as far as its share of the visit, its
+// fragments land in its regions and take its material (look.py describes it).
 
 // name, label, lowest, highest, step, first reels, full face, what it does
 const SETTINGS = [
@@ -63,10 +65,42 @@ const OFF = {
   gloss: 0, heat: 0, flush: 0, fracture: 0, holes: 0, drip: 0,
 };
 
+export const REGIONS = ['eyes', 'brows', 'forehead', 'nose', 'mouth', 'cheeks', 'jaw', 'skin', 'whole'];
+export const MATERIALS = ['none', 'gloss', 'porcelain', 'gold', 'deepfried', 'glassy', 'tight', 'cracked', 'sunset', 'smear'];
+export const BEHAVIOURS = ['none', 'hungry', 'preen', 'orbit', 'bounce', 'drift', 'tense', 'jitter', 'sprawl', 'pulse'];
+const SETTING = Object.fromEntries(SETTINGS.flatMap(([, group]) => group.map(([name, label, low, high, step]) => [name, [label, low, high, step]])));
+let categories = {}; // config.yaml's category_looks.categories, set once by the eye
+
+// The categories' defaults, from config.yaml (category_looks.categories).
+export function setCategories(given) {
+  categories = {};
+  for (const [name, category] of Object.entries(given ?? {})) {
+    const pushes = {};
+    for (const [setting, ramp] of Object.entries(category.pushes ?? {})) if (setting in SETTING) pushes[setting] = [...ramp];
+    categories[name] = {
+      regions: (category.regions ?? []).filter((region) => REGIONS.includes(region)),
+      material: MATERIALS.includes(category.material) ? category.material : 'none',
+      materialAmount: [...(category.material_amount ?? [0.5, 0.9])],
+      pushes,
+      shards: BEHAVIOURS.includes(category.shards) ? category.shards : 'none',
+      shardsAmount: [...(category.shards_amount ?? [0.6, 1.0])],
+    };
+  }
+}
+
 export function defaultLook() {
   const values = {};
   for (const [, group] of SETTINGS) for (const [name, , , , , start, full] of group) values[name] = [start, full];
-  return { values, background: '', presets: {} };
+  for (const [name, category] of Object.entries(categories)) {
+    values[`${name}/material`] = [...category.materialAmount];
+    values[`${name}/shards`] = [...category.shardsAmount];
+    for (const [setting, ramp] of Object.entries(category.pushes)) values[`${name}/${setting}`] = [...ramp];
+  }
+  const looks = {};
+  for (const [name, category] of Object.entries(categories)) {
+    looks[name] = { regions: [...category.regions], material: category.material, shards: category.shards };
+  }
+  return { values, categories: looks, background: '', presets: {} };
 }
 
 // A look with every setting there (an older one may miss newer settings).
@@ -75,21 +109,84 @@ export function completeLook(look) {
   if (!look || typeof look !== 'object' || Array.isArray(look)) return full;
   const values = { ...full.values };
   for (const [name, value] of Object.entries(look.values ?? {})) if (name in full.values) values[name] = value;
-  return { ...full, ...look, values };
+  const looks = {};
+  for (const [name, fallback] of Object.entries(full.categories)) {
+    const saved = look.categories?.[name] ?? {};
+    looks[name] = {
+      regions: Array.isArray(saved.regions) ? saved.regions.filter((region) => REGIONS.includes(region)) : fallback.regions,
+      material: MATERIALS.includes(saved.material) ? saved.material : fallback.material,
+      shards: BEHAVIOURS.includes(saved.shards) ? saved.shards : fallback.shards,
+    };
+  }
+  return { ...full, ...look, values, categories: looks };
 }
 
-// A setting's value this far into the face forming.
-export function lookValue(look, name, progress) {
+// A setting's value this far into the face forming; with the categories' shares
+// of the visit, pushed by each as far as its share (kept in range).
+export function lookValue(look, name, progress, shares = null) {
   const [start, end] = look.values[name];
-  return start + (end - start) * Math.min(1, Math.max(0, progress));
+  const at = Math.min(1, Math.max(0, progress));
+  let result = start + (end - start) * at;
+  if (shares && Object.keys(shares).length) {
+    for (const [category, part] of Object.entries(shares)) {
+      const push = look.values[`${category}/${name}`];
+      if (push) result += part * (push[0] + (push[1] - push[0]) * at);
+    }
+    const [, low, high] = SETTING[name];
+    result = Math.min(high, Math.max(low, result));
+  }
+  return result;
 }
 
-// The settings, as the look editor shows them.
+// The look's values now (name → value), pushed by each category as far as its share of the visit (the screens' copy of lookValue).
+export function pushedValues(now, look, progress, shares) {
+  const at = Math.min(1, Math.max(0, progress));
+  for (const [category, part] of Object.entries(shares ?? {})) {
+    for (const [key, [start, full]] of Object.entries(look.values ?? {})) {
+      if (!key.startsWith(`${category}/`)) continue;
+      const name = key.slice(category.length + 1);
+      if (!(name in SETTING)) continue; // its material, not a setting
+      const [, low, high] = SETTING[name];
+      now[name] = Math.min(high, Math.max(low, (now[name] ?? 0) + part * (start + (full - start) * at)));
+    }
+  }
+  return now;
+}
+
+// Each category's share of the visit (the profile's weights), for the ones the look knows; 0-1, adding to 1.
+export function categoryShares(weights) {
+  const known = Object.entries(weights ?? {}).filter(([name, weight]) => name in categories && weight > 0);
+  const total = known.reduce((sum, [, weight]) => sum + weight, 0);
+  return total ? Object.fromEntries(known.map(([name, weight]) => [name, Math.round((weight / total) * 1000) / 1000])) : {};
+}
+
+// The settings, as the look editor shows them; the Categories group last, each setting with its category.
 export function describedLook() {
-  return SETTINGS.map(([group, settings]) => ({
+  const groups = SETTINGS.map(([group, settings]) => ({
     group,
     settings: settings.map(([name, label, min, max, step, start, full, help]) => ({
       name, label, min, max, step, default: [start, full], off: OFF[name] ?? null, help,
     })),
   }));
+  const settings = [];
+  for (const [name, category] of Object.entries(categories)) {
+    settings.push({ name: `${name}/material`, category: name, label: 'Material', min: 0, max: 1, step: 0.01,
+      default: [...category.materialAmount], off: null, help: `How strongly ${name}'s fragments take its material as they land` });
+    settings.push({ name: `${name}/shards`, category: name, label: 'Shards', min: 0, max: 1.5, step: 0.01,
+      default: [...category.shardsAmount], off: null, help: `How strongly ${name}'s share of the energy's shards behave like it` });
+    for (const [setting, ramp] of Object.entries(category.pushes)) {
+      const [label, low, high, step] = SETTING[setting];
+      const span = high - low;
+      settings.push({ name: `${name}/${setting}`, category: name, label, min: -span, max: span, step, default: [...ramp], off: null,
+        help: `How far ${name} pushes ${label} when the whole visit is ${name} (less as its share falls)` });
+    }
+  }
+  if (settings.length) {
+    const defaults = {};
+    for (const [name, category] of Object.entries(categories)) {
+      defaults[name] = { regions: [...category.regions], material: category.material, shards: category.shards };
+    }
+    groups.push({ group: 'Categories', settings, regions: REGIONS, materials: MATERIALS, behaviours: BEHAVIOURS, defaults });
+  }
+  return groups;
 }

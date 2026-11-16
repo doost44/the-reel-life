@@ -4,7 +4,9 @@
 //
 // Fragments sit on MediaPipe's face layout (canonical_face_model.obj, 0-1),
 // or, for the hair and ears, on the head layout round it. Each is a torn piece
-// of one of the reel's stills, damaged as far as the face has got.
+// of one of the reel's stills, damaged as far as the face has got. A reel's
+// category claims regions of the face: a share of its pieces land there (all
+// of a liked reel's, bigger and less damaged).
 
 import { progressOf } from './distortion.js';
 import { base64Of, cvLib, encodeJpeg, roundEven, throughJpeg, toImageData, withMats } from './imaging.js';
@@ -33,6 +35,17 @@ const FEATURES = [
   [1, 2, 98, 327, 168, 6, 197, 195, 5, 4, 45, 275, 64, 294],
   [61, 146, 91, 181, 84, 17, 314, 405, 321, 375, 291, 409, 270, 269, 267, 0, 37, 39, 40, 185],
 ];
+// The regions a category can claim, as outlines by landmark number (each filled as its convex hull);
+// skin is the face but its features, whole the whole face; jaw is cut back from the mouth.
+const REGION_OUTLINES = {
+  eyes: [FEATURES[0], FEATURES[1]],
+  brows: [FEATURES[2], FEATURES[3]],
+  nose: [FEATURES[4]],
+  mouth: [FEATURES[5]],
+  forehead: [[54, 103, 67, 109, 10, 338, 297, 332, 284, 300, 293, 334, 296, 336, 9, 107, 66, 105, 63, 70]],
+  cheeks: [[116, 117, 118, 119, 100, 36, 205, 187, 123, 50, 101], [345, 346, 347, 348, 329, 266, 425, 411, 352, 280, 330]],
+  jaw: [[58, 172, 136, 150, 149, 176, 148, 152, 377, 400, 378, 379, 365, 397, 288]],
+};
 
 const round4 = (value) => Math.round(value * 1e4) / 1e4;
 
@@ -113,10 +126,40 @@ export class FaceMap {
         cv.convexHull(keep(polygon(onGrid(feature))), hull, false, true);
         cv.fillConvexPoly(features, hull, new cv.Scalar(1));
       }
-      cv.dilate(features, features, keep(cv.Mat.ones(3, 3, cv.CV_8U)));
+      const kernel = keep(cv.Mat.ones(3, 3, cv.CV_8U));
+      cv.dilate(features, features, kernel);
       this.features = gridOf(features);
+      this.regions = {
+        skin: this.face.map((inside, i) => (inside && !this.features[i] ? 1 : 0)),
+        whole: Float32Array.from(this.face),
+      };
+      for (const [name, outlines] of Object.entries(REGION_OUTLINES)) {
+        const region = mat(GRID, GRID, cv.CV_8UC1, new cv.Scalar(0));
+        for (const outline of outlines) {
+          const hull = mat();
+          cv.convexHull(keep(polygon(onGrid(outline))), hull, false, true);
+          cv.fillConvexPoly(region, hull, new cv.Scalar(1));
+        }
+        cv.dilate(region, region, kernel);
+        this.regions[name] = gridOf(region).map((inside, i) => (inside && this.face[i] ? 1 : 0));
+      }
+      const mouth = mat(GRID, GRID, cv.CV_8UC1, new cv.Scalar(0));
+      mouth.data.set(this.regions.mouth);
+      cv.dilate(mouth, mouth, kernel);
+      this.regions.jaw = this.regions.jaw.map((inside, i) => (inside && !mouth.data[i] ? 1 : 0));
     });
     this.faceCells = this.face.reduce((sum, inside) => sum + inside, 0);
+  }
+
+  // The union of these regions (null if there are none).
+  region(names) {
+    if (!names?.length) return null;
+    const union = new Float32Array(GRID * GRID);
+    for (const name of names) {
+      const region = this.regions[name];
+      if (region) for (let i = 0; i < union.length; i++) if (region[i]) union[i] = 1;
+    }
+    return union.some((inside) => inside) ? union : null;
   }
 }
 
@@ -132,8 +175,9 @@ function leastCovered(where, cover, random) {
 
 // Breaks each reel into fragments of the face, reel by reel.
 export class Planner {
-  constructor(settings, faceMap, seed) {
+  constructor(settings, faceMap, seed, categories = {}) {
     this.settings = settings;
+    this.categories = categories ?? {}; // config.yaml's category_looks: region_share, liked
     this.map = faceMap;
     this.random = new Random(seed);
     this.cover = new Float32Array(GRID * GRID);     // how many pieces have landed on each part of the face
@@ -154,34 +198,51 @@ export class Planner {
   }
 
   // This reel's fragments: their places, edges and pictures (numbers and times come later).
-  async plan(reel, look) {
+  // category: the classifier's, if known; liked: the visitor liked it; shares: each category's share of the visit.
+  async plan(reel, look, category = null, liked = false, shares = null) {
     this.reels += 1;
     this.watched += reel.watched;
     const at = this.progress;
     const stills = reel.stills.length ? reel.stills : [colourTile(reel.colour, this.random)];
-    const count = Math.max(1, roundEven(lookValue(look, 'fragments', at) * this.random.uniform(0.75, 1.25)));
-    const size = lookValue(look, 'fragment_size', at);
-    const jagged = lookValue(look, 'jagged', at);
-    const jpeg = lookValue(look, 'jpeg', at);
-    const bleed = lookValue(look, 'bleed', at);
+    const count = Math.max(1, roundEven(lookValue(look, 'fragments', at, shares) * this.random.uniform(0.75, 1.25)));
+    let size = lookValue(look, 'fragment_size', at, shares);
+    const jagged = lookValue(look, 'jagged', at, shares);
+    let jpeg = lookValue(look, 'jpeg', at, shares);
+    let bleed = lookValue(look, 'bleed', at, shares);
+    const region = category ? this.map.region(look.categories?.[category]?.regions ?? []) : null;
+    let regionShare = this.categories.region_share ?? 0;
+    if (liked) {
+      const likedSettings = this.categories.liked ?? {};
+      regionShare = likedSettings.region_share ?? 1;
+      size *= likedSettings.size ?? 1;
+      jpeg *= likedSettings.damage ?? 1;
+      bleed *= likedSettings.damage ?? 1;
+    }
+    // A piece in the regions fits them: no bigger than a few times their own radius.
+    const fits = region !== null
+      ? Math.sqrt(region.reduce((sum, inside) => sum + inside, 0) / Math.PI) / GRID * (this.categories.region_fit ?? 1.5) : 1;
     const pending = [];
     for (let i = 0; i < count; i++) {
-      const centre = this.where(at);
-      const radius = size / 2 * this.random.uniform(0.6, 1.4);
+      const inRegion = region !== null && this.random.uniform() < regionShare;
+      const centre = inRegion ? leastCovered(region, this.cover, this.random) : this.where(at);
+      let radius = size / 2 * this.random.uniform(0.6, 1.4);
+      if (inRegion) radius = Math.min(radius, fits);
       const outline = this.torn(centre, radius, jagged);
       const side = radius * 4; // room for the torn outline at its widest
       const rect = [centre[0] - side / 2, centre[1] - side / 2, side];
       const still = stills[this.random.integers(stills.length)];
-      pending.push(this.piece(still, side, jpeg, bleed).then((image) => ({ number: 0, reel: reel.number, rect, outline, image, due: 0, layer: 'face' })));
+      pending.push(this.piece(still, side, jpeg, bleed).then((image) => ({
+        number: 0, reel: reel.number, rect, outline, image, due: 0, layer: 'face', category, liked,
+      })));
       land(this.cover, centre, radius);
     }
-    pending.push(...this.planHead(reel, stills, look, at, jagged, jpeg, bleed));
+    pending.push(...this.planHead(reel, stills, look, at, jagged, jpeg, bleed, category, liked));
     const tiles = await Promise.all(pending);
     return this.random.shuffle(tiles); // the face and its hair form together
   }
 
   // This reel's pieces for the hair and ears, on the head layout.
-  planHead(reel, stills, look, at, jagged, jpeg, bleed) {
+  planHead(reel, stills, look, at, jagged, jpeg, bleed, category = null, liked = false) {
     if (Math.max(...look.values.hair) <= 0) return []; // switched off
     const count = roundEven(lookValue(look, 'hair_fragments', at) * this.random.uniform(0.75, 1.25));
     const size = lookValue(look, 'hair_size', at);
@@ -197,7 +258,9 @@ export class Planner {
       const rect = [centre[0] - side / 2, centre[1] - side / 2, side];
       const still = stills[this.random.integers(stills.length)];
       const outline = this.torn(centre, radius, jagged);
-      pending.push(this.piece(still, side, jpeg, bleed).then((image) => ({ number: 0, reel: reel.number, rect, outline, image, due: 0, layer: 'head' })));
+      pending.push(this.piece(still, side, jpeg, bleed).then((image) => ({
+        number: 0, reel: reel.number, rect, outline, image, due: 0, layer: 'head', category, liked,
+      })));
       land(this.headCover, centre, radius);
     }
     return pending;

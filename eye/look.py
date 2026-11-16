@@ -6,6 +6,15 @@ distortion.py, or the operator's intensity). The look is kept in setup.json
 with any presets saved from the editor, so it survives restarts and reaches
 every screen at once. Its background is the colour behind the face; empty,
 the reel face source's own (set in the setup editor).
+
+Categories (A3 phase 3): each category the classifier knows shows in the face.
+Its fragments land in its regions of the face and take its material, and it
+pushes some of the look's settings, as far as its share of the visit
+(profile.py's weights). Their defaults are in config.yaml (category_looks);
+the look keeps them like any setting: each push and each material's strength is
+a ramp in values ("Food/gloss", "Food/material"), and each category's regions
+and material in categories. The Chrome version's copy is
+web/js/eye/look-settings.js: change both together.
 """
 
 from __future__ import annotations
@@ -70,9 +79,36 @@ OFF = {"melt": 0, "flow": 0, "mosh": 0, "pixelate": 1, "jpeg": 0, "stretch": 0, 
        "gloss": 0, "heat": 0, "flush": 0, "fracture": 0, "holes": 0, "drip": 0}
 
 
+REGIONS = ["eyes", "brows", "forehead", "nose", "mouth", "cheeks", "jaw", "skin", "whole"]
+MATERIALS = ["none", "gloss", "porcelain", "gold", "deepfried", "glassy", "tight", "cracked", "sunset", "smear"]
+BEHAVIOURS = ["none", "hungry", "preen", "orbit", "bounce", "drift", "tense", "jitter", "sprawl", "pulse"]
+_SETTING = {name: (label, low, high, step) for _, group in SETTINGS for name, label, low, high, step, *_ in group}
+_categories: dict = {}  # config.yaml's category_looks.categories, set once by the eye
+
+
+def set_categories(categories: dict | None) -> None:
+    """The categories' defaults, from config.yaml (category_looks.categories)."""
+    _categories.clear()
+    for name, category in (categories or {}).items():
+        pushes = {setting: list(ramp) for setting, ramp in (category.get("pushes") or {}).items() if setting in _SETTING}
+        _categories[name] = {"regions": [region for region in category.get("regions", []) if region in REGIONS],
+                             "material": category.get("material") if category.get("material") in MATERIALS else "none",
+                             "material_amount": list(category.get("material_amount", [0.5, 0.9])), "pushes": pushes,
+                             "shards": category.get("shards") if category.get("shards") in BEHAVIOURS else "none",
+                             "shards_amount": list(category.get("shards_amount", [0.6, 1.0]))}
+
+
 def default_look() -> dict:
+    values = {name: [start, full] for _, group in SETTINGS for name, _, _, _, _, start, full, _ in group}
+    for name, category in _categories.items():
+        values[f"{name}/material"] = list(category["material_amount"])
+        values[f"{name}/shards"] = list(category["shards_amount"])
+        values.update({f"{name}/{setting}": list(ramp) for setting, ramp in category["pushes"].items()})
     return {
-        "values": {name: [start, full] for _, group in SETTINGS for name, _, _, _, _, start, full, _ in group},
+        "values": values,
+        "categories": {name: {"regions": list(category["regions"]), "material": category["material"],
+                              "shards": category["shards"]}
+                       for name, category in _categories.items()},
         "background": "",
         "presets": {},
     }
@@ -84,18 +120,64 @@ def complete(look: dict | None) -> dict:
     if not isinstance(look, dict):
         return full
     values = {**full["values"], **{k: v for k, v in (look.get("values") or {}).items() if k in full["values"]}}
-    return {**full, **look, "values": values}
+    categories = {}
+    for name, default in full["categories"].items():
+        saved = (look.get("categories") or {}).get(name) or {}
+        regions = saved.get("regions")
+        categories[name] = {
+            "regions": [region for region in regions if region in REGIONS] if isinstance(regions, list) else default["regions"],
+            "material": saved.get("material") if saved.get("material") in MATERIALS else default["material"],
+            "shards": saved.get("shards") if saved.get("shards") in BEHAVIOURS else default["shards"]}
+    return {**full, **look, "values": values, "categories": categories}
 
 
-def value(look: dict, name: str, progress: float) -> float:
-    """A setting's value this far into the face forming."""
+def value(look: dict, name: str, progress: float, shares: dict | None = None) -> float:
+    """A setting's value this far into the face forming; with the categories'
+    shares of the visit, pushed by each as far as its share (kept in range)."""
     start, end = look["values"][name]
-    return start + (end - start) * min(1.0, max(0.0, progress))
+    at = min(1.0, max(0.0, progress))
+    result = start + (end - start) * at
+    if shares:
+        for category, part in shares.items():
+            push = look["values"].get(f"{category}/{name}")
+            if push:
+                result += part * (push[0] + (push[1] - push[0]) * at)
+        _, low, high, _ = _SETTING[name]
+        result = min(high, max(low, result))
+    return result
+
+
+def shares(weights: dict | None) -> dict:
+    """Each category's share of the visit (profile.py's weights), for the ones the look knows; 0-1, adding to 1."""
+    known = {name: weight for name, weight in (weights or {}).items() if name in _categories and weight > 0}
+    total = sum(known.values())
+    return {name: round(weight / total, 3) for name, weight in known.items()} if total else {}
 
 
 def described() -> list:
-    """The settings, as the look editor shows them."""
-    return [{"group": title, "settings": [
+    """The settings, as the look editor shows them; the Categories group last, each setting with its category."""
+    groups = [{"group": title, "settings": [
         {"name": name, "label": label, "min": low, "max": high, "step": step, "default": [start, full],
          "off": OFF.get(name), "help": help}
         for name, label, low, high, step, start, full, help in group]} for title, group in SETTINGS]
+    settings = []
+    for name, category in _categories.items():
+        settings.append({"name": f"{name}/material", "category": name, "label": "Material", "min": 0, "max": 1, "step": 0.01,
+                         "default": list(category["material_amount"]), "off": None,
+                         "help": f"How strongly {name}'s fragments take its material as they land"})
+        settings.append({"name": f"{name}/shards", "category": name, "label": "Shards", "min": 0, "max": 1.5, "step": 0.01,
+                         "default": list(category["shards_amount"]), "off": None,
+                         "help": f"How strongly {name}'s share of the energy's shards behave like it"})
+        for setting, ramp in category["pushes"].items():
+            label, low, high, step = _SETTING[setting]
+            span = high - low
+            settings.append({"name": f"{name}/{setting}", "category": name, "label": label, "min": -span, "max": span,
+                             "step": step, "default": list(ramp), "off": None,
+                             "help": f"How far {name} pushes {label} when the whole visit is {name} (less as its share falls)"})
+    if settings:
+        groups.append({"group": "Categories", "settings": settings, "regions": REGIONS, "materials": MATERIALS,
+                       "behaviours": BEHAVIOURS,
+                       "defaults": {name: {"regions": list(category["regions"]), "material": category["material"],
+                                           "shards": category["shards"]}
+                                    for name, category in _categories.items()}})
+    return groups

@@ -107,6 +107,13 @@ label.swatch input::-webkit-color-swatch { border: 1px solid var(--stroke-strong
 .setting-ends b { color: var(--muted); font: 400 11px var(--mono); cursor: text; }
 .setting-ends input { width: 64px; padding: 0 6px; font: 11px var(--mono); }
 
+/* The Categories group */
+.categories { display: flex; flex-direction: column; gap: 10px; padding: 4px 4px 10px; border-bottom: 1px solid var(--stroke); margin-bottom: 6px; }
+.category-row { display: flex; align-items: flex-start; gap: 10px; }
+.category-label { flex: 0 0 58px; padding-top: 4px; color: var(--faint); font-size: 11px; }
+.category-row select { font-size: 12px; padding: 3px 8px; }
+.categories .chip button { padding: 3px 12px; }
+
 .help { min-height: 34px; margin: 8px 2px 0; color: var(--muted); font-size: 12px; }
 
 /* Timeline */

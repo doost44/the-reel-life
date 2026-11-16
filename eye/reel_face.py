@@ -15,6 +15,11 @@ Once it has started forming, the face speaks for the participant, wanting
 more: a word every few seconds, more insistent as desire rises. The eye picks
 the words and when, so every screen says the same word at the same time.
 
+A reel is cut once its category is known (or it has waited long enough), so
+its pieces can land in its category's regions (formation.py). The eye says
+what it knows of each reel through describe, and each category's share of the
+visit through shares (look.py), which the screens push the look by.
+
 Everything is held in memory for one visit and wiped when it ends. Nothing
 is saved.
 """
@@ -24,7 +29,8 @@ from __future__ import annotations
 import base64
 import copy
 import re
-from dataclasses import dataclass
+from collections.abc import Callable
+from dataclasses import dataclass, field
 
 import numpy as np
 
@@ -44,14 +50,22 @@ class PlanJob:
     planner: Planner
     reel: ReelRecord
     look: dict
+    category: str | None = None
+    liked: bool = False
+    shares: dict = field(default_factory=dict)
 
     def plan(self) -> list[Tile]:
-        return self.planner.plan(self.reel, self.look)
+        return self.planner.plan(self.reel, self.look, self.category, self.liked, self.shares)
 
 
 class ReelFace:
-    def __init__(self, settings: dict) -> None:
+    def __init__(self, settings: dict, categories: dict | None = None) -> None:
         self.settings = settings
+        self.categories = categories or {}  # config.yaml's category_looks
+        # Set by the eye: what's known of a reel (its number): {"category", "liked", "known"}; and the
+        # categories' shares of the visit. Unset, reels are cut at once with no category.
+        self.describe: Callable[[int], dict] | None = None
+        self.shares: Callable[[], dict] = dict
         self.override: float | None = None  # the operator's intensity, for testing; None follows the session
         self.face_feed = "none"  # the face camera: camera, test (a recorded clip) or none; set by the eye
         self.speech_paused = False  # the operator: no words for now
@@ -69,9 +83,11 @@ class ReelFace:
         self.tiles: list[Tile] = []         # every tile planned, in order; shown once due
         self.shown = 0                      # how many of them are out
         self.scrub_to: int | None = None    # show the face as it was after this many reels
-        self._planner = Planner(self.settings, self._face_map, seed=self._visit * 1000 + int(self._random.integers(1000)))
+        self._planner = Planner(self.settings, self._face_map, seed=self._visit * 1000 + int(self._random.integers(1000)),
+                                categories=self.categories)
         self._planned = 0                   # reels planned into tiles so far
         self._job: PlanJob | None = None     # the reel being cut now, if any
+        self._waiting: tuple[int, float] | None = None  # the next reel to cut, and since when it's waited for its category
 
     # What happens
 
@@ -115,14 +131,22 @@ class ReelFace:
         """The operator's override of how broken it looks (0-1), or None to follow the session."""
         self.override = None if value is None else min(1.0, max(0.0, float(value)))
 
-    def next_to_plan(self) -> PlanJob | None:
-        """The next reel to cut, once the queue of tiles runs short; one at a time."""
+    def next_to_plan(self, t: float = 0.0) -> PlanJob | None:
+        """The next reel to cut, once the queue of tiles runs short; one at a time. It waits
+        (up to category_looks.wait_seconds) for its category, so its pieces land where it says."""
         waiting = len(self.tiles) - self.shown
         if self._job or self._planned >= len(self.reels) or waiting >= self.settings["queue_tiles"]:
             return None
         reel = self.reels[self._planned]
+        known = self.describe(reel.number) if self.describe else {"known": True}
+        if not known.get("known"):
+            if self._waiting is None or self._waiting[0] != reel.number:
+                self._waiting = (reel.number, t)
+            if t - self._waiting[1] < self.categories.get("wait_seconds", 0):
+                return None
         self._planned += 1
-        self._job = PlanJob(self._planner, reel, copy.deepcopy(self.look))
+        self._job = PlanJob(self._planner, reel, copy.deepcopy(self.look), known.get("category"), bool(known.get("liked")),
+                            self.shares())
         return self._job
 
     def planned(self, job: PlanJob, tiles: list[Tile], t: float) -> None:
@@ -226,12 +250,17 @@ class ReelFace:
             "reel_marks": self._reel_marks(),
             "speech_paused": self.speech_paused,
             "muted": self.muted,
+            "categories": self.shares() if self.on else {},  # each category's share of the visit: the look's pushes
+            "liked_pulse": self.categories.get("liked", {}).get("pulse_seconds", 1.6),  # how long a liked fragment beats
+            "shards_coverage": self.categories.get("shards_coverage", [0.25, 1.0]),  # the share of shards with a personality
+            "beat_bpm": self.categories.get("beat_bpm", 118),
         }
 
     @staticmethod
     def tile_message(tile: Tile, animate: bool = True) -> dict:
         return {"type": "tile", "number": tile.number, "reel": tile.reel, "rect": tile.rect, "outline": tile.outline,
-                "layer": tile.layer, "image": base64.b64encode(tile.jpeg).decode(), "animate": animate}
+                "layer": tile.layer, "category": tile.category, "liked": tile.liked,
+                "image": base64.b64encode(tile.jpeg).decode(), "animate": animate}
 
     def shown_tiles(self) -> list[Tile]:
         return self.tiles[:self.shown]

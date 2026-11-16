@@ -153,9 +153,11 @@ class Eye:
         self.setup = settings.load_setup() or settings.default_setup(self.devices, self.camera_settings["default_device"])
         self.hub = cameras.CameraHub(self.camera_settings)
         self.journey = Journey(config["journey"], self._broadcast)
-        self.reel_face = ReelFace(config["reel_face"])
+        self.reel_face = ReelFace(config["reel_face"], config.get("category_looks"))
         self.profile = Profile(config["profile"])
         self.classifier = Classifier(config["classifier"])
+        self.reel_face.describe = self._describe_reel
+        self.reel_face.shares = lambda: look.shares(self.profile.category_weights())
         self._classifying = asyncio.Lock()
         self._visit_seen = self.journey.visits
         self._stage_seen = self.journey.stage
@@ -313,6 +315,8 @@ class Eye:
                     self.profile.classify(reel.number, self._test_verdict(category, names), "test")
                 else:
                     self._classify_reel_soon(reel)
+                if message.get("liked"):
+                    self.profile.like(t, "test", on_screen=False)  # a liked test reel (no capture: its category is the operator's)
             self._broadcast(self.reel_face.message())
             self._broadcast(self.profile.message())
         elif kind == "like":
@@ -518,6 +522,17 @@ class Eye:
         if visit == self.profile.visit and self.profile.classify(number, verdict, "reel"):
             self._broadcast(self.profile.message())
 
+    def _describe_reel(self, number: int) -> dict:
+        """What's known of a reel, for cutting it: its category, whether it was liked, and whether
+        that's settled (classified, and any like's capture classified too, as that has the last word)."""
+        entry = self.profile._entry(number)
+        if entry is None:
+            return {"known": True}  # not in the profile (the visit's reels were cleared): no category
+        waiting = any(like.reel == number and not like.captured for like in self.profile.likes)
+        broken = self.classifier.info().get("state") in ("off", "failed")
+        known = broken or (entry.category_from is not None and (entry.category_from == "test" or not waiting))
+        return {"category": entry.category, "liked": entry.likes > 0, "known": known}
+
     def _test_verdict(self, category: str, names: list[str]) -> dict:
         """The operator's test category: as if the classifier had said so, with an ordinary confidence."""
         random = self.reel_face._random
@@ -627,7 +642,7 @@ class Eye:
             self.journey.tick(t)
             self._follow_visit(t)
             self._drop_old_still(t)
-            job = self.reel_face.next_to_plan()
+            job = self.reel_face.next_to_plan(t)
             if job:
                 asyncio.create_task(self._plan(job))
             tiles = self.reel_face.tick(t)

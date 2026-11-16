@@ -5,7 +5,7 @@
 // in this browser's storage, and starts from setup.json in the repository
 // when it has none of its own.
 
-import { completeLook, defaultLook } from './look-settings.js';
+import { completeLook, defaultLook, setCategories } from './look-settings.js';
 
 const ROOT = new URL('../../../', import.meta.url); // the repository: config.yaml, setup.json, voice/, faces/
 
@@ -19,7 +19,9 @@ export async function loadConfig() {
   const yaml = await import('../../vendor/js-yaml/js-yaml.mjs');
   const response = await fetch(rootUrl('config.yaml'), { cache: 'no-store' });
   if (!response.ok) throw new Error(`config.yaml: ${response.status}`);
-  return yaml.load(await response.text());
+  const config = yaml.load(await response.text());
+  setCategories(config.category_looks?.categories); // the look's category defaults
+  return config;
 }
 
 export function isValid(setup) {

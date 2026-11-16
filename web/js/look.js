@@ -9,6 +9,11 @@
 // setting's name to see that effect alone (this page only). Changes save to
 // setup.json and reach every screen at once; Looks keeps them by name.
 //
+// The Categories group: for each category the classifier knows, the regions of
+// the face its fragments claim, their material, how its share of the energy's
+// shards behave (its personality), and the settings it pushes (as far as its
+// share of the visit). Test reels in that category try it out.
+//
 // The preview is a screen like any other: it tracks the face camera and tells
 // the eye when it sees someone, so the journey runs with no other screen open.
 // The face only appears once the phone is placed, so the Visit card also shows
@@ -49,6 +54,8 @@ let soloed = null;           // the setting shown alone, while its name is held
 let scrub = null;            // while dragging the face or the chart: { value, ... }
 let lastSent = 0;
 let saidTimer = 0;
+let category = remembered('look-category'); // the category open in the Categories group
+let shares = {};             // each category's share of the visit, from the eye
 
 const link = connect({
   onMessage,
@@ -239,6 +246,8 @@ setInterval(() => {
 function showReelFace(info) {
   if (!info) return;
   stage.reelFace(info);
+  shares = info.categories ?? {};
+  if (group === 'Categories') showShares();
   $('#desire').replaceChildren(...bigNumber(100 * info.desire, 1));
   const waiting = info.waiting_reels ?? 0;
   $('#reels').replaceChildren(String(info.formed_reels ?? 0), ...(waiting ? [el('small', { textContent: ` +${waiting}` })] : []));
@@ -481,9 +490,76 @@ function buildSettings() {
   group = open.group;
   $('#group-note').textContent = group === 'Formation' || group === 'Hair and ears'
     ? 'Pieces are cut as each reel arrives: Clear face, then add reels, to see a change in them.' : '';
-  $('#settings').replaceChildren(...open.settings.map(settingRow));
+  if (group === 'Categories') buildCategories(open);
+  else $('#settings').replaceChildren(...open.settings.map(settingRow));
   showHelp();
   drawRamps();
+}
+
+// The Categories group: one category at a time, its regions, material and pushes.
+function buildCategories(open) {
+  const names = [...new Set(open.settings.map((setting) => setting.category))];
+  if (!names.includes(category)) category = names[0];
+  const chosen = setup.look.categories[category] ?? { regions: [], material: 'none', shards: 'none' };
+  const toggle = (region) => {
+    chosen.regions = chosen.regions.includes(region) ? chosen.regions.filter((other) => other !== region) : [...chosen.regions, region];
+    setup.look.categories[category] = chosen;
+    edited();
+    buildSettings();
+  };
+  const test = (liked) => link.send({ type: 'reelface_test_reels', count: 1, category, liked });
+  const material = el('select', { title: 'How its fragments are treated as they land' },
+    open.materials.map((kind) => el('option', { value: kind, textContent: kind, selected: kind === chosen.material })));
+  material.addEventListener('change', () => {
+    chosen.material = material.value;
+    setup.look.categories[category] = chosen;
+    edited();
+  });
+  const shards = el('select', { title: 'How its share of the energy\'s shards behave: its personality' },
+    (open.behaviours ?? ['none']).map((kind) => el('option', { value: kind, textContent: kind, selected: kind === chosen.shards })));
+  shards.addEventListener('change', () => {
+    chosen.shards = shards.value;
+    setup.look.categories[category] = chosen;
+    edited();
+  });
+  $('#settings').replaceChildren(
+    el('div', { className: 'categories' }, [
+      el('div', { className: 'chips' }, names.map((name) => el('span', { className: `chip${name === category ? ' active' : ''}` }, [
+        el('button', {
+          textContent: name, title: 'Tune this category',
+          onclick: () => { category = name; remember('look-category', name); buildSettings(); },
+        }),
+      ]))),
+      el('div', { className: 'category-row' }, [el('span', { className: 'category-label', textContent: 'Regions' }),
+        el('div', { className: 'chips' }, open.regions.map((region) => el('span', { className: `chip${chosen.regions.includes(region) ? ' active' : ''}` }, [
+          el('button', { textContent: region, title: 'Its fragments land here: click to add or take away', onclick: () => toggle(region) }),
+        ])))]),
+      el('div', { className: 'category-row' }, [el('span', { className: 'category-label', textContent: 'Material' }), material]),
+      el('div', { className: 'category-row' }, [el('span', { className: 'category-label', textContent: 'Shards' }), shards]),
+      el('div', { className: 'category-row' }, [el('span', { className: 'category-label', textContent: 'Try it' }),
+        el('div', { className: 'chips' }, [
+          el('span', { className: 'chip' }, [el('button', { textContent: '+1 reel', title: `A test reel sorted into ${category}`, onclick: () => test(false) })]),
+          el('span', { className: 'chip' }, [el('button', { textContent: '+1 liked reel', title: `A liked test reel in ${category}: bigger, sharper, all in its regions`, onclick: () => test(true) })]),
+          el('span', { className: 'chip' }, [el('button', { textContent: 'Reset defaults', title: `${category}'s regions, material and pushes as config.yaml has them`, onclick: () => resetCategory(open) })]),
+        ])]),
+    ]),
+    ...open.settings.filter((setting) => setting.category === category).map(settingRow));
+  showShares();
+}
+
+function resetCategory(open) {
+  setup.look.categories[category] = structuredClone(open.defaults?.[category] ?? { regions: [], material: 'none' });
+  for (const setting of open.settings) if (setting.category === category) setup.look.values[setting.name] = [...setting.default];
+  edited();
+  buildSettings();
+}
+
+// How much of the visit each category is, so far: what its pushes are scaled by.
+function showShares() {
+  const parts = Object.entries(shares).sort((a, b) => b[1] - a[1]);
+  $('#group-note').textContent = parts.length
+    ? `This visit: ${parts.map(([name, part]) => `${name} ${Math.round(100 * part)}%`).join(', ')}. Pushes are scaled by these.`
+    : 'No categories this visit yet: pushes scale with each category\'s share of the visit. Try a reel below.';
 }
 
 function settingRow(setting) {
@@ -653,13 +729,19 @@ function soloLook(name) {
 $('#preset-save').onclick = () => {
   const name = prompt('Save this look as:', 'My look')?.trim();
   if (!name) return;
-  setup.look.presets[name] = { values: structuredClone(setup.look.values), background: setup.look.background };
+  setup.look.presets[name] = {
+    values: structuredClone(setup.look.values), categories: structuredClone(setup.look.categories ?? {}), background: setup.look.background,
+  };
   edited();
   toast(`Saved "${name}".`);
 };
 $('#defaults').onclick = () => {
   if (!confirm('Every setting back to how it started? (Saved looks are kept.)')) return;
-  for (const { settings } of described) for (const setting of settings) setup.look.values[setting.name] = [...setting.default];
+  for (const { settings, defaults } of described) {
+    for (const setting of settings) setup.look.values[setting.name] = [...setting.default];
+    if (defaults) setup.look.categories = structuredClone(defaults);
+  }
+  if (group === 'Categories') buildSettings();
   setBackground('');
 };
 
@@ -680,6 +762,8 @@ function renderLooks() {
 function loadPreset(name) {
   const preset = setup.look.presets[name];
   Object.assign(setup.look.values, structuredClone(preset.values));
+  if (preset.categories) Object.assign(setup.look.categories, structuredClone(preset.categories));
+  if (group === 'Categories') buildSettings();
   setBackground(preset.background ?? '');
   toast(`Loaded "${name}".`);
 }

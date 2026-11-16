@@ -6,6 +6,12 @@
 // taking on its reel's colours, and it grows as it absorbs them (reelface.js). The
 // face sheds shards back the whole time, in the colours of its reels, so the two
 // are always passing through each other. At the climax it bursts into all of them.
+//
+// The visit's categories give the cloud a personality (A3 phase 3): a share of the
+// free shards, growing as the face forms, take on the categories in proportion to
+// the visit, and each behaves like its category (config.yaml category_looks,
+// shards): hungry ones swarm to its regions of the face and cling, orbiting ones
+// circle it tight and fast, jittering ones spike and flicker, and so on.
 
 export const SWARM_COUNT = 2200;
 export const SHARD_VALUES = 11; // for each shard drawn: x, y, size, light, angle, stretch, seed, red, green, blue, depth
@@ -183,6 +189,9 @@ export class EnergySwarm {
     const wanted = (REACH_DORMANT + (REACH_AWAKE + REACH_NEAR * near - REACH_DORMANT) * alive) * spread;
     const reaches = Math.min(wanted, (frame.tall * 0.86 - Math.abs(offset[1])) / TALLNESS, (frame.wide * 0.86 - Math.abs(offset[0])) / WIDENESS);
     const light = Math.min(1, (0.1 + alive * (0.3 + 0.6 * near) + voice * 0.35 + burst * 0.7) * glow);
+    const traits = feel.traits ?? [];
+    const shareTotal = traits.reduce((sum, trait) => sum + trait.share, 0);
+    const beat = ((clock * (feel.beatBpm ?? 118)) / 60) % 1;
     this.count = 0;
     for (let i = 0; i < SWARM_COUNT; i++) {
       const mode = this.mode[i];
@@ -221,10 +230,24 @@ export class EnergySwarm {
           ySpeed += ((dy + dx * 0.7) / away) * pull;
           shardLight = Math.min(1, shardLight + drain.strength * (1 - away / DRAIN_REACH) * 0.5);
         }
+        // Its category's personality, if it has taken one on.
+        let stretchBy = 1;
+        if (shareTotal > 0 && fract(s3 * 13.7 + s0 * 5.3) < (feel.coverage ?? 0)) {
+          let pick = fract(s0 * 7.31 + s1 * 3.7) * shareTotal;
+          const trait = traits.find((candidate) => (pick -= candidate.share) < 0) ?? traits[traits.length - 1];
+          const effect = this.personality(trait, i, x, y, xSpeed, ySpeed, seconds, clock, beat, offset[0], frame.middle + offset[1]);
+          xSpeed = effect.xSpeed;
+          ySpeed = effect.ySpeed;
+          shardLight *= effect.light;
+          shardSize *= effect.size;
+          stretchBy = effect.stretch;
+        }
+        this.stretchBy = stretchBy;
         xSpeed *= damping;
         ySpeed *= damping;
         shardLight *= fade * (1 - clear);
       } else if (mode === PULLED) {
+        this.stretchBy = 1;
         this.age[i] += seconds;
         const through = Math.min(1, this.age[i] / this.flight[i]);
         locate(this.goalKind[i], this.goal[i * 3], this.goal[i * 3 + 1], this.goal[i * 3 + 2], spot);
@@ -246,6 +269,7 @@ export class EnergySwarm {
         }
       } else {
         // Flying out of the broken face.
+        this.stretchBy = 1;
         shardLight = (1 - breaking) ** 0.5;
         xSpeed *= Math.exp(-1.2 * seconds);
         ySpeed *= Math.exp(-1.2 * seconds);
@@ -274,7 +298,7 @@ export class EnergySwarm {
       const moving = Math.min(1, speed * 0.9);
       const spin = s0 * 6.2832 + clock * (s1 - 0.5) * 2;
       const angle = moving > 0.15 ? Math.atan2(ySpeed, xSpeed) : spin;
-      const stretch = (0.55 + 0.9 * s2) * (1 + (mode === PULLED ? 1.8 : 0.8) * moving);
+      const stretch = (0.55 + 0.9 * s2) * (1 + (mode === PULLED ? 1.8 : 0.8) * moving) * this.stretchBy;
 
       this.write(x, y, z, shardSize, shardLight, angle, stretch, s1, i);
       // Those flying in leave a streak, so you can see where they've come from.
@@ -285,6 +309,106 @@ export class EnergySwarm {
         }
       }
     }
+  }
+
+  // How a shard behaves when it has taken on a category: forces on its speed, and its light, size and stretch.
+  // trait: { behaviour, amount, anchors: [[x, y]...] (its regions on the frame now) }; (middleX, middleY): the cloud's middle.
+  personality(trait, i, x, y, xSpeed, ySpeed, seconds, clock, beat, middleX, middleY) {
+    const s0 = this.seeds[i * 4], s1 = this.seeds[i * 4 + 1], s2 = this.seeds[i * 4 + 2];
+    const a = trait.amount;
+    const anchors = trait.anchors?.length ? trait.anchors : [[middleX, middleY]];
+    const [tx, ty] = anchors[Math.floor(s1 * anchors.length) % anchors.length];
+    const dx = tx - x, dy = ty - y;
+    const away = Math.hypot(dx, dy) || 0.001;
+    const out = { xSpeed, ySpeed, light: 1, size: 1, stretch: 1 };
+    switch (trait.behaviour) {
+      case 'hungry': { // swarms to its regions and clings there, gorging
+        const toward = 9 * a * seconds;
+        out.xSpeed += dx * toward;
+        out.ySpeed += dy * toward;
+        if (away < 0.1) {
+          const cling = Math.exp(-10 * a * seconds);
+          out.xSpeed *= cling;
+          out.ySpeed *= cling;
+          out.size = 1 + 0.4 * a;
+        }
+        break;
+      }
+      case 'preen': { // hovers close round the face, glinting
+        const ring = 0.32 + 0.1 * s0;
+        const fromMiddle = Math.hypot(x - middleX, y - middleY) || 0.001;
+        const toRing = (ring - fromMiddle) * 6 * a * seconds;
+        out.xSpeed += ((x - middleX) / fromMiddle) * toRing;
+        out.ySpeed += ((y - middleY) / fromMiddle) * toRing;
+        out.light = 0.6 + 0.8 * Math.max(0, Math.sin(clock * 5 + s2 * 40)) ** 8 * a + 0.4;
+        out.size = 0.8;
+        break;
+      }
+      case 'orbit': { // tight, sharp, fast circles round its regions
+        const radius = 0.07 + 0.12 * s0;
+        const turn = clock * (2.5 + 2 * s2) * (s1 > 0.5 ? 1 : -1) + s0 * 6.2832;
+        const wantX = tx + Math.cos(turn) * radius, wantY = ty + Math.sin(turn) * radius;
+        out.xSpeed += ((wantX - x) * 14 - out.xSpeed * 0.3) * a * seconds * 3;
+        out.ySpeed += ((wantY - y) * 14 - out.ySpeed * 0.3) * a * seconds * 3;
+        out.size = 0.7;
+        out.stretch = 1 + 0.8 * a;
+        break;
+      }
+      case 'bounce': { // hops and wobbles, laughing
+        const hop = Math.abs(Math.sin(clock * 3.2 + s0 * 6.2832));
+        out.ySpeed += (hop - 0.45) * 7 * a * seconds;
+        out.xSpeed += Math.sin(clock * 6 + s2 * 20) * 2 * a * seconds;
+        out.size = 1 + 0.25 * a * hop;
+        break;
+      }
+      case 'drift': { // soft, slow, round, nuzzling its regions
+        const slow = Math.exp(-5 * a * seconds);
+        out.xSpeed = out.xSpeed * slow + dx * 4 * a * seconds;
+        out.ySpeed = out.ySpeed * slow + dy * 4 * a * seconds;
+        out.stretch = 1 - 0.5 * Math.min(1, a);
+        out.size = 1 + 0.3 * a;
+        break;
+      }
+      case 'tense': { // snaps into rows and slides along them
+        const row = Math.round((y - middleY) / 0.07) * 0.07 + middleY;
+        out.ySpeed = out.ySpeed * Math.exp(-12 * a * seconds) + (row - y) * 60 * a * seconds;
+        out.xSpeed += (s1 > 0.5 ? 1 : -1) * 2 * a * seconds;
+        out.stretch = 1 + 1.2 * a;
+        out.size = 0.85;
+        break;
+      }
+      case 'jitter': { // spikes and flickers, outraged
+        if (Math.random() < 2 * seconds) { // a spike every half second or so
+          const turn = Math.random() * 6.2832;
+          out.xSpeed += Math.cos(turn) * 1.3 * a;
+          out.ySpeed += Math.sin(turn) * 1.3 * a;
+        }
+        out.light = 0.45 + 1.1 * fract(Math.sin(tick * 3.3 + i) * 9631.1);
+        out.stretch = 1 + 1.5 * a;
+        break;
+      }
+      case 'sprawl': { // spreads out wide and slow, looking at the view
+        const fromMiddle = Math.hypot(x - middleX, y - middleY) || 0.001;
+        out.xSpeed += ((x - middleX) / fromMiddle) * 1.6 * a * seconds;
+        out.ySpeed += ((y - middleY) / fromMiddle) * 0.6 * a * seconds;
+        out.xSpeed *= Math.exp(-1.5 * a * seconds);
+        out.ySpeed *= Math.exp(-1.5 * a * seconds);
+        out.size = 0.9;
+        break;
+      }
+      case 'pulse': { // throbs out from the middle on the beat
+        const fromMiddle = Math.hypot(x - middleX, y - middleY) || 0.001;
+        const push = (beat < 0.12 ? 9 : -1.4) * a * seconds * 3;
+        out.xSpeed += ((x - middleX) / fromMiddle) * push;
+        out.ySpeed += ((y - middleY) / fromMiddle) * push;
+        out.light = beat < 0.15 ? 1 + 0.6 * a : 0.85;
+        out.size = beat < 0.15 ? 1 + 0.5 * a : 1;
+        break;
+      }
+      default:
+        break;
+    }
+    return out;
   }
 
   write(x, y, z, size, light, angle, stretch, seed, i) {
@@ -303,3 +427,5 @@ export class EnergySwarm {
     out[at + 10] = z;
   }
 }
+
+const fract = (value) => value - Math.floor(value);
