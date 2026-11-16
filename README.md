@@ -232,6 +232,7 @@ face slides from one to the other as it forms, so the look itself tells the stor
 | Light and colour | **Gloss lines** (wet, waxy highlights where the surface ripples), **Heat colour** (a heat camera's orange, yellow and green), **Flush** (the fever of wanting, more with desire) |
 | Breaking | **Fracture** (pieces pulled apart and sliding), **Holes** (pieces missing), **Dripping edges** |
 | Hair and ears | **Show hair and ears** (0 at both ends switches them off, and the second model with them), **Fragments per reel**, **Fragment size**, **Likeness** (how much of the real hair's light and dark the reels take) |
+| Categories | One category at a time: its **Regions** (click to add or take away), its **Material**, how strong the material is, and each setting it pushes. **+1 reel** and **+1 liked reel** add a test reel in that category; **Reset defaults** goes back to `config.yaml`'s. See "Categories in the face". |
 
 **Changing the words:** `config.yaml`, `reel_face.voice.words`: one list per stage of desire. How often:
 `gap_seconds`. **Recorded words:** put `more.wav`, `again.wav`, `one-more.wav`, `dont-stop.wav`... in
@@ -342,6 +343,7 @@ $python = "$env:USERPROFILE\.venvs\reel-life\Scripts\python.exe"
 & $python tools\make_test_clip.py --seed 6 --likes                        # the same, with some reels liked (the heart turns red) and a .likes.csv
 & $python tools\detect_likes.py <clip.avi> --button 0.9,0.436 [--zone ...] # the like detector on a clip, scored against its .likes.csv
 & $python tools\check_browser_eye.py <clip> --button 0.9,0.436            # ...and the Python and Chrome like detectors side by side
+& $python tools\check_look.py               # the Python and Chrome looks (categories, pushes) side by side (needs Node.js)
 & $python tools\embed_categories.py         # after changing the categories in config.yaml: remakes web/vendor/clip/categories.json
 ```
 
@@ -405,6 +407,34 @@ kept is a tiny, blurry thumbnail (54 pixels wide) for the operator's panel, in m
 
 **+1 reel in category** in the Visit tab adds a test reel already sorted, so the weights can be tried without a
 phone.
+
+## Categories in the face
+
+What the visitor watched shows in their face, in a way you can read: someone who liked mostly food ends up
+with a glossy, swollen mouth and cheeks; mostly luxury, gold-leaf eyes and jaw. Each category in
+`config.yaml` (`category_looks`) has:
+
+- **Regions** of the face its fragments claim: eyes, brows, forehead, nose, mouth, cheeks, jaw, skin (the face
+  but its features) or the whole face, outlined on MediaPipe's face layout (`eye/formation.py`). A reel waits
+  up to `wait_seconds` for its category before it's cut into fragments; then `region_share` of them land in its
+  regions, no bigger than the regions themselves (`region_fit`), and the rest go where the face is still
+  missing, as before.
+- **A material** its fragments take as they land, made from the fragment's own picture on the screens
+  (`reelface.js`): gloss (wet, swollen highlights), porcelain (smoothed, pale, filtered), gold (gold leaf),
+  deepfried (a meme saved a hundred times), glassy (soft, wet, a hard highlight), tight (hard contrast, pulled
+  into rows), cracked (feverish red, split), sunset (a holiday sky bleeding in) and smear (smeared sideways,
+  colours split).
+- **Pushes:** look settings it moves (Food pushes Gloss lines and Melt; Outrage pushes Flush and Fracture;
+  Music pushes Trails and Flow...), by up to its amount when the whole visit is that category, less as its
+  share of the visit's weight falls (the visit profile's weights: likes count most).
+
+A **liked** reel's fragments all land in its regions, bigger (`liked.size`) and much less damaged
+(`liked.damage`), and each beats red twice as it lands (`liked.pulse_seconds`). Unreadable reels claim
+nothing. Every number is tuned in the look editor's **Categories** group and saved with the look (and in saved
+looks). `tools/check_look.py` checks both eyes make the same look from it.
+
+Not done: the brief's enlarged eyes (Beauty, Pets) and fur at the hairline (Pets) would need the face's shape
+warped by region, and Music's rhythmic pulse shows only as its smear and pushes.
 
 ## Privacy
 
