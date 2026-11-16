@@ -18,7 +18,8 @@ function camera(info) {
 }
 
 export function healthParts({
-  eye, detectionCamera, camera: cameraInfo, detection, faceFeed, faceCamera = null, faceReports, likeSources, clips, clipsWanted,
+  eye, detectionCamera, camera: cameraInfo, detection, faceFeed, faceCamera = null, faceReports, likeSources, likeButton, classifier,
+  clips, clipsWanted,
 }) {
   const result = [part('eye', 'Eye', 'ok', eye === 'python' ? 'Python eye' : 'in Chrome, hosted by one open page')];
 
@@ -65,11 +66,23 @@ export function healthParts({
   }
 
   // Likes: the operator's test likes always work; the others as config.yaml switches them.
-  const sources = ['test', ...Object.entries(likeSources).filter(([, on]) => on).map(([name]) => name + (name === 'key' ? ' (L)' : ''))];
-  result.push(part('likes', 'Like sources', sources.length > 1 ? 'ok' : 'warn',
-    sources.join(', ') + (likeSources.heart ? '' : '; heart on screen: not built yet')));
+  const sources = ['test'];
+  if (likeSources.key) sources.push('key / like pad');
+  // The heart is read reliably only with the phone's position locked: a thumb can pull a found outline off it.
+  const locked = detection?.zone === 'locked';
+  if (likeSources.heart) {
+    sources.push(!likeButton ? 'heart on screen (click the like button on a Detection view)'
+      : locked ? 'heart on screen' : 'heart on screen (lock the phone position to read it reliably)');
+  }
+  const working = likeSources.key || (likeSources.heart && likeButton && locked);
+  result.push(part('likes', 'Like sources', working ? 'ok' : 'warn', sources.join(', ')));
 
-  result.push(part('classifier', 'Classifier', 'off', 'not built yet: every reel is Unclassified'));
+  // The classifier: loads the first time a reel needs it.
+  const states = { ready: classifier.stale ? 'warn' : 'ok', loading: 'warn', off: 'off', failed: 'bad' };
+  let detail = classifier.detail ?? '';
+  if (classifier.state === 'ready' && classifier.ms) detail += `, ${classifier.ms} ms a picture`;
+  if (classifier.state === 'failed') detail += '; every reel is Unreadable';
+  result.push(part('classifier', 'Classifier', states[classifier.state] ?? 'warn', detail));
   if (clips >= clipsWanted) result.push(part('voice', 'Voice', 'ok', `all ${clipsWanted} recorded clips`));
   else result.push(part('voice', 'Voice', 'warn', `${clips} of ${clipsWanted} recorded clips; the rest use the browser's voice`));
   result.push(part('recogniser', 'Listening', 'off', "not built yet: it can't hear anyone"));

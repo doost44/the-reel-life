@@ -39,12 +39,17 @@ VISIT = [
     ("unlike",),                         # one taken back
     ("swipe", 26.0, "next"),
     ("reel", 3, "phone", 14.3, 11.7, 3), # watched to the end, liked
-    ("classify", 3, "Food", 0.38, "Pets / cute"),
+    ("captured", 2, {"category": "Food", "confidence": 0.38, "runner_up": "Pets / cute", "runner_up_confidence": 0.31,
+                     "guess": "Food"}, "dGh1bWI="),  # the like on reel 3, its capture classified
+    ("classify", 3, {"category": "Travel / scenery", "confidence": 0.9, "runner_up": "Food", "runner_up_confidence": 0.05,
+                     "guess": "Travel / scenery"}, "reel"),  # a still's verdict can't replace the capture's
     ("reel", 4, "test", 30.0, 4.4, 3),
     ("like", 31.0, "test", False),       # no phone: on the last reel
-    ("classify", 4, "Food", 0.71, "Travel / scenery"),
+    ("classify", 4, {"category": "Food", "confidence": 0.71, "runner_up": "Travel / scenery", "runner_up_confidence": 0.2,
+                     "guess": "Food"}, "reel"),
     ("reel", 5, "test", 32.0, 2.1, 3),
-    ("classify", 5, "Pets / cute", 0.52, "Food"),
+    ("classify", 5, {"category": "Unreadable", "confidence": 0.22, "runner_up": "Food", "runner_up_confidence": 0.2,
+                     "guess": "Pets / cute"}, "test"),
     ("end",),
 ]
 
@@ -69,6 +74,8 @@ def run_python(config: dict) -> list:
             profile.unlike()
         elif kind == "classify":
             profile.classify(*args)
+        elif kind == "captured":
+            profile.captured(*args)
         out.append(profile.message())
     return out
 

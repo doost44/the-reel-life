@@ -7,8 +7,13 @@ classifier's confidence and runner-up. From those, a running weight per
 category: likes count most, then a reel watched to the end, then one watched
 partly. Reels swiped past too soon to count are counted as skips.
 
+A like also brings a capture: the reel at that moment, made private
+(privacy.py), classified, and kept only as a tiny degraded thumbnail. A
+liked reel's category comes from its capture, which wins over the one from
+its still.
+
 Likes come in as events from any source (a test like from the operator, a key
-or like pad, later the heart seen on the phone's screen: see config.yaml,
+or like pad, the heart seen on the phone's screen: see config.yaml,
 profile.like_sources). A like lands on the reel on the phone's screen now: as
 that reel hasn't been swiped away yet, there's no record of it, so the like
 waits and joins the reel's entry when its record arrives. With no phone being
@@ -38,17 +43,24 @@ class Entry:
     stills: int                  # stills of it held in memory (by the reel face)
     likes: int = 0
     revisited: bool = False      # the visitor came back to it with a swipe back
-    category: str | None = None  # what the classifier thinks it is (phase 2)
+    category: str | None = None  # what the classifier thinks it is (Unreadable below its floor)
     confidence: float | None = None
     runner_up: str | None = None
-    captures: int = 0            # captures taken at the moment of a like (phase 2)
+    runner_up_confidence: float | None = None
+    guess: str | None = None     # its best guess, even when that's below the floor
+    category_from: str | None = None  # reel (a still of it), capture (a like's) or test (the operator's)
+    captures: int = 0            # captures taken at the moment of a like
 
 
 @dataclass
 class Like:
+    number: int                  # its place among this visit's likes, from 1
     t: float
-    source: str                  # test, key, pad, heart...
+    source: str                  # test, key, heart
     reel: int | None             # the reel's number; None while it's the one on screen, not yet recorded
+    captured: bool = False       # its capture has been taken and classified
+    verdict: dict | None = None  # the classifier's: category, confidence, runner_up, runner_up_confidence, guess
+    thumb: str | None = None     # base64 JPEG, tiny and degraded
 
 
 @dataclass
@@ -61,6 +73,7 @@ class Profile:
     swipes: int = 0
     back: int = 0
     unlikes: int = 0
+    _likes_made: int = 0
     _swipe_log: list[tuple[float, str]] = field(default_factory=list)
 
     def __post_init__(self) -> None:
@@ -73,6 +86,7 @@ class Profile:
         self.swipes = 0
         self.back = 0
         self.unlikes = 0
+        self._likes_made = 0
         self._swipe_log = []
 
     # A visit
@@ -117,6 +131,9 @@ class Profile:
             if like.reel is None and started - LIKE_WINDOW_BEFORE <= like.t <= ended + LIKE_WINDOW_AFTER:
                 like.reel = number
                 entry.likes += 1
+                if like.captured:
+                    entry.captures += 1
+                    self._apply(entry, like.verdict, "capture")
         self.entries.append(entry)
         return entry
 
@@ -126,12 +143,13 @@ class Profile:
         if not self.on:
             return None
         if on_screen:
-            like = Like(t, source, None)
+            like = Like(self._likes_made + 1, t, source, None)
         elif self.entries:
-            like = Like(t, source, self.entries[-1].number)
+            like = Like(self._likes_made + 1, t, source, self.entries[-1].number)
             self.entries[-1].likes += 1
         else:
             return None
+        self._likes_made += 1
         self.likes.append(like)
         return like
 
@@ -143,16 +161,38 @@ class Profile:
         entry = self._entry(like.reel)
         if entry:
             entry.likes = max(0, entry.likes - 1)
+            entry.captures = max(0, entry.captures - (1 if like.captured else 0))
         self.unlikes += 1
         return True
 
-    def classify(self, number: int, category: str, confidence: float, runner_up: str | None = None) -> bool:
-        """The classifier's verdict on a reel (phase 2)."""
+    def classify(self, number: int, verdict: dict, source: str = "reel") -> bool:
+        """The classifier's verdict on a reel, from a still of it (reel) or the operator's (test).
+        A liked reel's capture has the last word, so a still's verdict never replaces it."""
         entry = self._entry(number)
-        if entry is None:
+        if entry is None or (entry.category_from == "capture" and source != "capture"):
             return False
-        entry.category, entry.confidence, entry.runner_up = category, float(confidence), runner_up
+        self._apply(entry, verdict, source)
         return True
+
+    def captured(self, number: int, verdict: dict, thumb: str | None) -> Like | None:
+        """A like's capture, classified (like number). Its reel's category comes from it from now on."""
+        like = next((like for like in self.likes if like.number == number), None)
+        if like is None or like.captured:
+            return None
+        like.captured, like.verdict, like.thumb = True, verdict, thumb
+        entry = self._entry(like.reel)
+        if entry:
+            entry.captures += 1
+            self._apply(entry, verdict, "capture")
+        return like
+
+    @staticmethod
+    def _apply(entry: Entry, verdict: dict | None, source: str) -> None:
+        if not verdict or (entry.category_from == "test" and source != "test"):
+            return  # the operator's test category stands
+        entry.category, entry.confidence = verdict["category"], float(verdict["confidence"])
+        entry.runner_up, entry.runner_up_confidence = verdict.get("runner_up"), verdict.get("runner_up_confidence")
+        entry.guess, entry.category_from = verdict.get("guess"), source
 
     def _entry(self, number: int | None) -> Entry | None:
         return next((entry for entry in self.entries if entry.number == number), None) if number is not None else None
@@ -180,7 +220,15 @@ class Profile:
     def held(self) -> dict:
         """What's held in memory about this visit, counted (for the wipe at the end to report, truthfully)."""
         return {"reels": len(self.entries), "stills": sum(entry.stills for entry in self.entries),
-                "captures": sum(entry.captures for entry in self.entries), "likes": len(self.likes)}
+                "captures": sum(1 for like in self.likes if like.captured), "likes": len(self.likes)}
+
+    @staticmethod
+    def like_message(like: Like) -> dict:
+        verdict = like.verdict or {}
+        return {"number": like.number, "reel": like.reel, "source": like.source, "captured": like.captured,
+                "category": verdict.get("category"), "confidence": verdict.get("confidence"),
+                "runner_up": verdict.get("runner_up"), "runner_up_confidence": verdict.get("runner_up_confidence"),
+                "thumb": like.thumb}
 
     def message(self) -> dict:
         weights = self.category_weights()
@@ -201,7 +249,9 @@ class Profile:
             "top": next(iter(weights), None),
             "recent": [{"number": entry.number, "source": entry.source, "watched": entry.watched, "likes": entry.likes,
                         "revisited": entry.revisited, "category": entry.category, "confidence": entry.confidence,
-                        "runner_up": entry.runner_up, "weight": round(self.weight_of(entry), 2)}
+                        "runner_up": entry.runner_up, "category_from": entry.category_from,
+                        "weight": round(self.weight_of(entry), 2)}
                        for entry in self.entries[-8:]],
+            "liked": [self.like_message(like) for like in self.likes[-6:]],
             "held": self.held(),
         }

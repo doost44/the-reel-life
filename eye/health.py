@@ -28,7 +28,8 @@ def _camera(info: dict | None) -> tuple[str, str]:
 
 
 def parts(*, eye: str, detection_camera: str, camera: dict | None, detection: dict | None, face_feed: str,
-          face_camera: dict | None, face_reports: list[dict], like_sources: dict, clips: int, clips_wanted: int) -> list[dict]:
+          face_camera: dict | None, face_reports: list[dict], like_sources: dict, like_button: bool,
+          classifier: dict, clips: int, clips_wanted: int) -> list[dict]:
     """eye: python or chrome. camera: the detection camera's info (None: no report yet). face_feed: camera,
     test or none; face_camera: its info where the eye opens it (the Python eye), else None. face_reports:
     what the open reel face screens last said (tracking, picture, face). clips: recorded words found."""
@@ -77,12 +78,25 @@ def parts(*, eye: str, detection_camera: str, camera: dict | None, detection: di
             result.append(_part("tracking", "Face tracking", "ok", "a face in view" if seen else "running, no face in view"))
 
     # Likes: the operator's test likes always work; the others as config.yaml switches them.
-    sources = ["test"] + [name + (" (L)" if name == "key" else "") for name, on in like_sources.items() if on]
-    heart = like_sources.get("heart")
-    result.append(_part("likes", "Like sources", "ok" if len(sources) > 1 else "warn",
-                        ", ".join(sources) + ("" if heart else "; heart on screen: not built yet")))
+    sources = ["test"]
+    if like_sources.get("key"):
+        sources.append("key / like pad")
+    # The heart is read reliably only with the phone's position locked: a thumb can pull a found outline off it.
+    locked = (detection or {}).get("zone") == "locked"
+    if like_sources.get("heart"):
+        sources.append("heart on screen (click the like button on a Detection view)" if not like_button
+                       else "heart on screen" if locked else "heart on screen (lock the phone position to read it reliably)")
+    working = like_sources.get("key") or (like_sources.get("heart") and like_button and locked)
+    result.append(_part("likes", "Like sources", "ok" if working else "warn", ", ".join(sources)))
 
-    result.append(_part("classifier", "Classifier", "off", "not built yet: every reel is Unclassified"))
+    # The classifier: loads the first time a reel needs it.
+    state = {"ready": "warn" if classifier.get("stale") else "ok", "loading": "warn", "off": "off", "failed": "bad"}
+    detail = classifier.get("detail", "")
+    if classifier.get("state") == "ready" and classifier.get("ms"):
+        detail += f", {classifier['ms']} ms a picture"
+    if classifier.get("state") == "failed":
+        detail += "; every reel is Unreadable"
+    result.append(_part("classifier", "Classifier", state.get(classifier.get("state"), "warn"), detail))
     if clips >= clips_wanted:
         result.append(_part("voice", "Voice", "ok", f"all {clips_wanted} recorded clips"))
     else:

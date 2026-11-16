@@ -16,7 +16,8 @@ Messages, as JSON:
               tile (one tile of the face, as it's released),
               word {text, desire, clip, muted} (the face speaking, as it starts), swipe (each one detected),
               profile (what the system has learned this visit: eye/profile.py), like {source, reel, likes},
-              unlike {likes}; status also carries health (every part's state, for the operator panel)
+              unlike {likes}, like_capture {like, reel, category, confidence, runner_up, runner_up_confidence, thumb}
+              (a like's capture, classified); status also carries health (every part's state, for the operator panel)
   from pages: watch {cameras}, setup {setup}, refresh_devices,
               open_screen {id}, close_screen {id}, lock_zone, unlock_zone,
               set_zone {zone: four [x, y] corners as fractions of the picture},
@@ -29,7 +30,9 @@ Messages, as JSON:
               reelface_intensity {value 0-1, or null to follow the session},
               speech_pause {paused}, speech_mute {muted},
               like {source: test, key...} (a like, on the reel on the phone's screen), unlike {source},
-              face_health {tracking: ready/starting/failed, picture, face} (a reel face screen, every few seconds)
+              face_health {tracking: ready/starting/failed, picture, face} (a reel face screen, every few seconds),
+              set_like_button {point: [x, y] as fractions of the camera picture} (where the phone's like button is),
+              clear_like_button; reelface_test_reels also takes {category} (test reels already in that category)
 Camera pictures go to pages as binary: one byte for the camera's name's
 length, the name, then a JPEG. The detection view is sent the same way, as
 "@detection", and the face camera as "@face". Nothing from the face camera
@@ -39,6 +42,7 @@ is ever kept.
 from __future__ import annotations
 
 import asyncio
+import base64
 import json
 import mimetypes
 import os
@@ -57,7 +61,9 @@ import numpy as np
 import segno
 from aiohttp import WSMsgType, web
 
-from . import cameras, health, look, monitors, settings
+from . import cameras, health, look, monitors, privacy, settings
+from .classifier import Classifier
+from .hearts import point_on_screen
 from .journey import Journey
 from .profile import Profile
 from .reel_face import PlanJob, ReelFace
@@ -149,6 +155,8 @@ class Eye:
         self.journey = Journey(config["journey"], self._broadcast)
         self.reel_face = ReelFace(config["reel_face"])
         self.profile = Profile(config["profile"])
+        self.classifier = Classifier(config["classifier"])
+        self._classifying = asyncio.Lock()
         self._visit_seen = self.journey.visits
         self._stage_seen = self.journey.stage
         self.sampler: ReelSampler | None = None
@@ -165,11 +173,14 @@ class Eye:
     async def start(self, app: web.Application) -> None:
         self._sync_cameras()
         loop = asyncio.get_running_loop()
+        self._loop = loop
         self.sampler = ReelSampler(self.config["reel_face"], self.config["detection"]["rotate"],
-                                   lambda reel: loop.call_soon_threadsafe(self._on_reel, reel))
+                                   lambda reel: loop.call_soon_threadsafe(self._on_reel, reel), self.config["capture"])
         self.sampler.start()
-        self.watcher = SwipeWatcher(self.hub, self.config["detection"], self._on_detection, loop, self.sampler)
+        self.watcher = SwipeWatcher(self.hub, self.config["detection"], self._on_detection, loop, self.sampler,
+                                    self.config["hearts"], self.config["detection"]["rotate"])
         self._watch_detection_camera()
+        self.watcher.like_button(self.setup.get("like_button"))
         self.watcher.start()
         self._tasks = [asyncio.create_task(self._pump_frames()), asyncio.create_task(self._pump_status()),
                        asyncio.create_task(self._pump_journey())]
@@ -209,6 +220,8 @@ class Eye:
                           "monitors": self.monitors, "status": self._status(),
                           "journey": self.journey.snapshot(time.monotonic()), "reel_face": self.reel_face.message(),
                           "profile": self.profile.message(),
+                          "categories": [entry["name"] for entry in self.config["classifier"]["categories"]],
+                          "like_keys": self.config["profile"]["like_keys"],
                           "still": self._still_message(),
                           "look_settings": look.described()})
         for tile in self.reel_face.shown_tiles():
@@ -292,8 +305,14 @@ class Eye:
             added = self.reel_face.add_test_reels(int(message.get("count", 1)), t) if self.journey.stage == "forming" else []
             if not added:
                 client.send_json({"type": "notice", "text": "Test reels count once the oracle has asked to watch some: wait for it to ask for the phone, then press Phone placed."})
+            category = message.get("category")
+            names = [entry["name"] for entry in self.config["classifier"]["categories"]]
             for reel in added:
                 self.profile.add_reel(reel.number, "test", reel.started, reel.watched, len(reel.stills))
+                if category in names:
+                    self.profile.classify(reel.number, self._test_verdict(category, names), "test")
+                else:
+                    self._classify_reel_soon(reel)
             self._broadcast(self.reel_face.message())
             self._broadcast(self.profile.message())
         elif kind == "like":
@@ -302,6 +321,23 @@ class Eye:
             if self.journey.counting and self.profile.unlike():
                 self._broadcast({"type": "unlike", "likes": len(self.profile.likes)})
                 self._broadcast(self.profile.message())
+        elif kind in ("set_like_button", "clear_like_button"):
+            button = None
+            if kind == "set_like_button":
+                point = message.get("point")
+                quad = self.watcher.detector.quad if self.watcher.detector.present else None
+                try:
+                    button = point_on_screen((float(point[0]), float(point[1])), self.watcher.frame_size, quad,
+                                             self.config["detection"]["rotate"]) if quad is not None else None
+                except (TypeError, ValueError, IndexError):
+                    button = None
+                if button is None:
+                    client.send_json({"type": "notice", "text": "Click the like button on the phone's screen, with the phone found (its outline green) on the Detection view."})
+                    return
+            self.setup["like_button"] = button
+            self.watcher.like_button(button)
+            self._save_soon()
+            self._broadcast({"type": "setup", "setup": self.setup})
         elif kind == "face_health":
             client.face_health = {key: message.get(key) for key in ("tracking", "picture", "face")}
             client.face_health_at = t
@@ -336,6 +372,7 @@ class Eye:
                     camera=cameras_info.get(self.setup.get("detection_camera") or ""), detection=detection,
                     face_feed=feed, face_camera=cameras_info.get(face) if feed == "camera" else None,
                     face_reports=self._face_reports(), like_sources=self.config["profile"]["like_sources"],
+                    like_button=bool(self.setup.get("like_button")), classifier=self.classifier.info(),
                     clips=self._clips_found(), clips_wanted=len(self._clip_names()))}
 
     def _face_reports(self) -> list[dict]:
@@ -395,6 +432,12 @@ class Eye:
             if self.journey.counting:
                 self.profile.on_swipe(event)
             self._broadcast(event)  # every detected swipe, for testing and tuning
+        elif event["type"] == "like":
+            self._like("heart", event["t"])
+        elif event["type"] == "unlike" and self.config["profile"]["like_sources"].get("heart"):
+            if self.journey.counting and self.profile.unlike():
+                self._broadcast({"type": "unlike", "likes": len(self.profile.likes)})
+                self._broadcast(self.profile.message())
 
     def _on_reel(self, reel: ReelRecord) -> None:
         """A reel was watched long enough (from the sampler's thread, via the loop).
@@ -402,6 +445,7 @@ class Eye:
         self.journey.begin_watching(time.monotonic())  # the oracle asked, and here's the first
         if self.journey.counting and self.reel_face.add_reel(reel):
             self.profile.add_reel(reel.number, "phone", reel.started, reel.watched, len(reel.stills))
+            self._classify_reel_soon(reel)
             self._broadcast(self.reel_face.message())
             self._broadcast(self.profile.message())
 
@@ -421,8 +465,67 @@ class Eye:
             else:
                 self._broadcast({"type": "like", "source": source, "reel": like.reel, "likes": len(self.profile.likes)})
                 self._broadcast(self.profile.message())
+                self._capture_soon(like.number, like.reel, t)
         if problem and client is not None and source == "test":
             client.send_json({"type": "notice", "text": problem})
+
+    # Captures and the classifier: on worker threads, one picture at a time, and
+    # dropped if the visit they belong to ended meanwhile.
+
+    def _capture_soon(self, number: int, reel_number: int | None, t: float) -> None:
+        """A like's capture: from the sampler's buffer for the reel on screen, or, for a like on the
+        last reel counted (no phone tracked: test reels), from that reel's own middle still."""
+        visit = self.profile.visit
+        if reel_number is None:
+            def done(image: np.ndarray | None) -> None:
+                self._loop.call_soon_threadsafe(lambda: asyncio.create_task(self._classify_capture(number, visit, image)))
+            self.sampler.capture(t, done)
+            return
+        reel = next((reel for reel in self.reel_face.reels if reel.number == reel_number), None)
+        image = self._private_still(reel) if reel else None
+        asyncio.create_task(self._classify_capture(number, visit, image))
+
+    def _private_still(self, reel: ReelRecord) -> np.ndarray | None:
+        if not reel.stills:
+            return None
+        still = cv2.imdecode(np.frombuffer(reel.stills[len(reel.stills) // 2], np.uint8), cv2.IMREAD_COLOR)
+        return privacy.private(still, self.config["capture"]) if still is not None else None
+
+    async def _classify(self, image: np.ndarray) -> dict:
+        async with self._classifying:
+            return await asyncio.to_thread(self.classifier.classify, image)
+
+    async def _classify_capture(self, number: int, visit: int, image: np.ndarray | None) -> None:
+        if image is None or visit != self.profile.visit:
+            return
+        verdict = await self._classify(image)
+        thumb = base64.b64encode(privacy.thumbnail(image, self.config["capture"]["thumbnail_width"])).decode()
+        if visit != self.profile.visit:
+            return  # the visit ended while it was being looked at: nothing of it is kept
+        like = self.profile.captured(number, verdict, thumb)
+        if like:
+            self._broadcast({"type": "like_capture", "like": like.number, **Profile.like_message(like)})
+            self._broadcast(self.profile.message())
+
+    def _classify_reel_soon(self, reel: ReelRecord) -> None:
+        asyncio.create_task(self._classify_reel(reel.number, self.profile.visit, reel))
+
+    async def _classify_reel(self, number: int, visit: int, reel: ReelRecord) -> None:
+        image = await asyncio.to_thread(self._private_still, reel)
+        if image is None or visit != self.profile.visit:
+            return
+        verdict = await self._classify(image)
+        if visit == self.profile.visit and self.profile.classify(number, verdict, "reel"):
+            self._broadcast(self.profile.message())
+
+    def _test_verdict(self, category: str, names: list[str]) -> dict:
+        """The operator's test category: as if the classifier had said so, with an ordinary confidence."""
+        random = self.reel_face._random
+        others = [name for name in names if name != category]
+        confidence = round(float(random.uniform(0.32, 0.9)), 3)
+        runner_up = others[int(random.integers(len(others)))] if others else None
+        return {"category": category, "guess": category, "confidence": confidence, "runner_up": runner_up,
+                "runner_up_confidence": round(float(random.uniform(0.02, min(confidence, 1 - confidence))), 3)}
 
     def _follow_visit(self, t: float) -> None:
         """Wipes the reel face when a visit starts or ends (visits are counted,

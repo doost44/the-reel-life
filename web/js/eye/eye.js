@@ -7,7 +7,11 @@
 // reel face's formation. Pages show the other cameras themselves, straight
 // from Chrome (cameras.js). Nothing about a visit is ever stored.
 
-import { cameraModes, defaultSetup, isValid } from './config.js';
+import { Classifier } from './classifier.js';
+import { cameraModes, defaultSetup, isValid, rootUrl } from './config.js';
+import { pointOnScreen } from './hearts.js';
+import { base64Of } from './imaging.js';
+import { makePrivate, thumbnail } from './privacy.js';
 import { completeLook, describedLook } from './look-settings.js';
 import { healthParts } from './health.js';
 import { Journey } from './journey.js';
@@ -45,10 +49,13 @@ export class Eye {
     this.reelFace = new ReelFace(config.reel_face, layout);
     this.reelFace.clips = clips;
     this.profile = new Profile(config.profile);
+    this.classifier = new Classifier(config.classifier, rootUrl);
+    this.classifying = Promise.resolve(); // one picture at a time
     this.visitSeen = this.journey.visits;
     this.stageSeen = this.journey.stage;
-    this.sampler = new ReelSampler(config.reel_face, config.detection.rotate, (reel) => this.onReel(reel));
-    this.watcher = new SwipeWatcher(config.detection, (event) => this.onDetection(event), this.sampler);
+    this.sampler = new ReelSampler(config.reel_face, config.detection.rotate, (reel) => this.onReel(reel), config.capture);
+    this.watcher = new SwipeWatcher(config.detection, (event) => this.onDetection(event), this.sampler, config.hearts, config.detection.rotate);
+    this.watcher.likeButton(this.setup.like_button ?? null);
     this.clients = new Map(); // id → { watching, faceSeenAt, movementSeenAt }
     this.camera = { status: 'starting', fps: 0, width: 0, height: 0 }; // the detection camera
     this.frames = 0;
@@ -71,6 +78,7 @@ export class Eye {
     this.send(id, {
       type: 'hello', setup: this.setup, devices: this.devices, monitors: [], status: this.status(),
       journey: this.journey.snapshot(t), reel_face: this.reelFace.message(), profile: this.profile.message(), still: this.stillMessage(),
+      categories: this.config.classifier.categories.map((category) => category.name), like_keys: this.config.profile.like_keys,
       look_settings: describedLook(),
       // For the pages, which open their own cameras in the Chrome version (cameras.js).
       local: { face_clip: this.faceClip, preview_fps: this.config.cameras.preview_fps, reconnect_seconds: this.config.cameras.reconnect_seconds },
@@ -177,7 +185,12 @@ export class Eye {
         if (!added.length) {
           this.notice(id, 'Test reels count once the oracle has asked to watch some: wait for it to ask for the phone, then press Phone placed.');
         }
-        for (const reel of added) this.profile.addReel(reel.number, 'test', reel.started, reel.watched, reel.stills.length);
+        const names = this.config.classifier.categories.map((category) => category.name);
+        for (const reel of added) {
+          this.profile.addReel(reel.number, 'test', reel.started, reel.watched, reel.stills.length);
+          if (names.includes(message.category)) this.profile.classify(reel.number, this.testVerdict(message.category, names), 'test');
+          else this.classifyReelSoon(reel);
+        }
         this.broadcast(this.reelFace.message());
         this.broadcast(this.profile.message());
         break;
@@ -191,6 +204,25 @@ export class Eye {
           this.broadcast(this.profile.message());
         }
         break;
+      case 'set_like_button': case 'clear_like_button': {
+        let button = null;
+        if (kind === 'set_like_button') {
+          const quad = this.watcher.detector.present ? this.watcher.detector.quad : null;
+          const point = Array.isArray(message.point) ? message.point.map(Number) : null;
+          if (quad && point?.length === 2 && point.every(Number.isFinite)) {
+            button = pointOnScreen(point, this.watcher.frameSize, quad, this.config.detection.rotate);
+          }
+          if (!button) {
+            this.notice(id, "Click the like button on the phone's screen, with the phone found (its outline green) on the Detection view.");
+            return;
+          }
+        }
+        this.setup.like_button = button;
+        this.watcher.likeButton(button);
+        this.saveSoon();
+        this.broadcast({ type: 'setup', setup: this.setup });
+        break;
+      }
       case 'face_health':
         client.faceHealth = { tracking: message.tracking, picture: message.picture, face: message.face };
         client.faceHealthAt = t;
@@ -220,6 +252,7 @@ export class Eye {
       health: healthParts({
         eye: 'chrome', detectionCamera, camera: cameras[detectionCamera] ?? null, detection,
         faceFeed: this.faceFeed(), faceReports: this.faceReports(), likeSources: this.config.profile.like_sources,
+        likeButton: Boolean(this.setup.like_button), classifier: this.classifier.info(),
         clips: [...this.clipNames()].filter((name) => this.reelFace.clips.has(name)).length, clipsWanted: this.clipNames().size,
       }),
     };
@@ -309,6 +342,13 @@ export class Eye {
     } else if (event.type === 'swipe') {
       if (this.journey.counting) this.profile.onSwipe(event);
       this.broadcast(event); // every detected swipe, for testing and tuning
+    } else if (event.type === 'like') {
+      this.like('heart', event.t);
+    } else if (event.type === 'unlike' && this.config.profile.like_sources.heart) {
+      if (this.journey.counting && this.profile.unlike()) {
+        this.broadcast({ type: 'unlike', likes: this.profile.likes.length });
+        this.broadcast(this.profile.message());
+      }
     }
   }
 
@@ -317,6 +357,7 @@ export class Eye {
     this.journey.beginWatching(now());
     if (this.journey.counting && this.reelFace.addReel(reel)) {
       this.profile.addReel(reel.number, 'phone', reel.started, reel.watched, reel.stills.length);
+      this.classifyReelSoon(reel);
       this.broadcast(this.reelFace.message());
       this.broadcast(this.profile.message());
     }
@@ -337,9 +378,71 @@ export class Eye {
       } else {
         this.broadcast({ type: 'like', source, reel: like.reel, likes: this.profile.likes.length });
         this.broadcast(this.profile.message());
+        this.captureSoon(like.number, like.reel, t);
       }
     }
     if (problem && id !== null && source === 'test') this.notice(id, problem);
+  }
+
+  // Captures and the classifier: one picture at a time, and dropped if the visit they belong to ended meanwhile.
+
+  // A like's capture: from the sampler's buffer for the reel on screen, or, for a like on the last reel
+  // counted (no phone tracked: test reels), from that reel's own middle still.
+  captureSoon(number, reelNumber, t) {
+    const visit = this.profile.visit;
+    let image = null;
+    if (reelNumber === null) {
+      image = this.sampler.capture(t);
+    } else {
+      const reel = this.reelFace.reels.find((candidate) => candidate.number === reelNumber);
+      image = reel ? this.privateStill(reel) : null;
+    }
+    if (image) this.classifyCapture(number, visit, image);
+  }
+
+  privateStill(reel) {
+    if (!reel.stills.length) return null;
+    return makePrivate(reel.stills[Math.floor(reel.stills.length / 2)], this.config.capture);
+  }
+
+  classify(image) {
+    const result = this.classifying.then(() => this.classifier.classify(image));
+    this.classifying = result.catch(() => {});
+    return result;
+  }
+
+  async classifyCapture(number, visit, image) {
+    if (visit !== this.profile.visit) return;
+    const verdict = await this.classify(image);
+    const thumb = await base64Of(await thumbnail(image, this.config.capture.thumbnail_width));
+    if (visit !== this.profile.visit) return; // the visit ended while it was being looked at: nothing of it is kept
+    const like = this.profile.captured(number, verdict, thumb);
+    if (like) {
+      this.broadcast({ type: 'like_capture', like: like.number, ...Profile.likeMessage(like) });
+      this.broadcast(this.profile.message());
+    }
+  }
+
+  classifyReelSoon(reel) {
+    this.classifyReel(reel.number, this.profile.visit, reel).catch((error) => console.error('Classifying a reel:', error));
+  }
+
+  async classifyReel(number, visit, reel) {
+    const image = this.privateStill(reel);
+    if (!image || visit !== this.profile.visit) return;
+    const verdict = await this.classify(image);
+    if (visit === this.profile.visit && this.profile.classify(number, verdict, 'reel')) this.broadcast(this.profile.message());
+  }
+
+  // The operator's test category: as if the classifier had said so, with an ordinary confidence.
+  testVerdict(category, names) {
+    const random = this.reelFace.random;
+    const others = names.filter((name) => name !== category);
+    const confidence = Math.round(random.uniform(0.32, 0.9) * 1000) / 1000;
+    return {
+      category, guess: category, confidence, runner_up: others.length ? others[random.integers(others.length)] : null,
+      runner_up_confidence: Math.round(random.uniform(0.02, Math.min(confidence, 1 - confidence)) * 1000) / 1000,
+    };
   }
 
   followVisit() {
