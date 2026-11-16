@@ -4,7 +4,8 @@
 //
 // Operator keys: D debug readout · P phone placed (or back to the tracker)
 // · R reset (everything wiped, back to stage 0) · T a test reel · F fullscreen
-// · L a like (on the reel on the phone's screen: a like pad on the platform can type it)
+// · L a like (on the reel on the phone's screen: a like pad on the platform can type it;
+//   which keys count is profile.like_keys in config.yaml)
 
 import { connect } from './link.js';
 import { Stage, STAGES, camerasIn } from './stage.js';
@@ -22,6 +23,7 @@ let screen = null;
 let cameras = {};
 let phoneOverride = null;
 let profile = null;
+let likeKeys = ['l']; // config.yaml, profile.like_keys: a like pad on the platform types one of these
 let framesThisSecond = {};
 let framesPerSecond = {};
 
@@ -46,9 +48,12 @@ function onMessage(message) {
       stage.reelFace(message.reel_face);
       stage.still(message.still);
       profile = message.profile;
+      likeKeys = (message.like_keys ?? ['l']).map((key) => (key === 'space' ? ' ' : String(key).toLowerCase()));
       break;
     case 'profile':
       profile = message;
+      break;
+    case 'like_capture':
       break;
     case 'setup':
       show(message.setup);
@@ -113,7 +118,9 @@ addEventListener('keydown', (event) => {
   else if (key === 'p') link.send({ type: 'place_phone', present: phoneOverride === null });
   else if (key === 'r') link.send({ type: 'reset' });
   else if (key === 't') link.send({ type: 'reelface_test_reels', count: 1 });
-  else if (key === 'l' && !event.repeat) link.send({ type: 'like', source: 'key' });
+  else if (likeKeys.includes(key)) {
+    if (!event.repeat) link.send({ type: 'like', source: 'key' });
+  }
   else if (key === 'f') document.documentElement.requestFullscreen?.().catch(() => {});
   else return;
   event.preventDefault();
@@ -135,6 +142,7 @@ function showDebug() {
     `stage: ${journey.stage}, face ${journey.face ? 'seen' : 'none'}, phone ${journey.phone ? 'placed' : 'not placed'}${phoneOverride === null ? '' : ' (by hand)'}`,
     `reels: ${face.reels ?? 0} (${face.waiting_reels ?? 0} waiting), tiles ${face.fragments ?? 0}, progress ${Math.round(100 * (face.progress ?? 0))}%, desire ${Math.round(100 * (face.desire ?? 0))}%`,
     `profile: ${profile?.likes ?? 0} likes, ${profile?.back ?? 0} back, ${profile?.skipped ?? 0} skipped, top ${profile?.top ?? '-'}`,
+    `last like: ${(() => { const like = profile?.liked?.at(-1); return like ? `${like.source}, ${like.captured ? `${like.category} ${Math.round(100 * like.confidence)}%` : 'capturing'}` : '-'; })()}`,
     'keys: P phone placed · R reset · T test reel · L like · F fullscreen · D hide',
   ];
   for (const view of stage.views.values()) {

@@ -34,6 +34,7 @@ const state = {
   setup: null, devices: [], monitors: [], cameras: {}, openScreens: [], screenId: null, itemId: null,
   detection: null, phoneOverride: null,
   corners: null, // while clicking the phone's corners: the ones clicked so far
+  pickingLikeButton: false, // while clicking the phone's like button
 };
 const CORNER_NAMES = ['top-left', 'top-right', 'bottom-right', 'bottom-left'];
 const history = [];
@@ -72,6 +73,7 @@ $('#reelface-test-5').onclick = () => link.send({ type: 'reelface_test_reels', c
 $('#reelface-reset').onclick = () => link.send({ type: 'reelface_reset' });
 $('#test-like').onclick = () => link.send({ type: 'like', source: 'test' });
 $('#test-unlike').onclick = () => link.send({ type: 'unlike', source: 'test' });
+$('#test-category').onclick = () => link.send({ type: 'reelface_test_reels', count: 1, category: $('#test-category-name').value });
 $('#reelface-history').oninput = (event) => link.send({ type: 'reelface_scrub', reels: Number(event.target.value) });
 $('#reelface-live').onclick = () => link.send({ type: 'reelface_scrub', reels: null });
 $('#reelface-intensity').oninput = (event) => link.send({ type: 'reelface_intensity', value: Number(event.target.value) / 100 });
@@ -104,13 +106,17 @@ function onMessage(message) {
       showJourney(message.journey);
       showReelFace(message.reel_face);
       showProfile(message.profile);
+      showCategories(message.categories);
       stage.still(message.still);
       break;
     case 'profile':
       showProfile(message);
       break;
     case 'like':
-      toast(message.reel === null ? 'Liked: the reel on the phone now.' : `Liked: reel ${message.reel}.`);
+      toast(message.reel === null ? `Liked (${message.source}): the reel on the phone now.` : `Liked (${message.source}): reel ${message.reel}.`);
+      break;
+    case 'like_capture':
+      toast(`Like ${message.like} captured: ${message.category}, ${Math.round(100 * (message.confidence ?? 0))}% sure.`);
       break;
     case 'journey':
       showJourney(message);
@@ -220,10 +226,28 @@ function showProfile(profile) {
     el('span', { textContent: category }),
     el('span', { className: 'bar', style: `width: ${Math.max(2, (100 * Math.max(0, weight)) / heaviest)}%` }),
     el('span', { className: 'value', textContent: weight.toFixed(1) }))));
+  // The likes, each with its capture's tiny thumbnail, its category, how sure, and the runner-up.
+  $('#profile-liked').replaceChildren(...(profile.liked ?? []).slice().reverse().map((like) => el('li', {},
+    like.thumb ? el('img', { src: `data:image/jpeg;base64,${like.thumb}`, alt: '' }) : el('span', { className: 'no-thumb' }),
+    el('span', { className: 'what' },
+      el('strong', { textContent: like.captured ? like.category : 'capturing…' }),
+      el('small', { textContent: like.captured
+        ? `${Math.round(100 * like.confidence)}% · then ${like.runner_up ?? '-'} ${Math.round(100 * (like.runner_up_confidence ?? 0))}%`
+        : '' })),
+    el('span', { className: 'value', textContent: `${like.source} · ${like.reel === null ? 'on screen' : `reel ${like.reel}`}` }))));
   const held = profile.held ?? {};
   $('#profile-readout').textContent = profile.on
     ? `${profile.reels} reels (${profile.liked_reels} liked, ${profile.revisits} came back to), ${profile.watched} s · held in memory: ${held.stills ?? 0} stills, ${held.captures ?? 0} captures`
     : 'No visit yet.';
+}
+
+// The classifier's categories, for the test category button.
+function showCategories(categories) {
+  if (!categories?.length) return;
+  const select = $('#test-category-name');
+  const chosen = select.value;
+  select.replaceChildren(...categories.map((name) => el('option', { value: name, textContent: name })));
+  if (categories.includes(chosen)) select.value = chosen;
 }
 
 // Every part of the exhibit, green, amber, red or grey (eye/health.py).
@@ -475,12 +499,18 @@ function renderDetection() {
       state.corners
         ? button(`Cancel (${state.corners.length}/4)`, stopCorners, 'small')
         : button('Click the phone\'s corners', startCorners, 'small'),
+      state.pickingLikeButton
+        ? button('Cancel', stopLikeButton, 'small')
+        : button(setup.like_button ? 'Move the like button' : 'Click the like button', startLikeButton, 'small'),
+      setup.like_button ? button('Forget it', () => link.send({ type: 'clear_like_button' }), 'small ghost') : '',
       // Recording footage writes files, which only the Python eye can.
       link.local ? '' : Object.assign(button('', () => link.send({ type: 'record', on: !isRecording() }), 'small'),
         { id: 'record-footage', title: 'Saves the camera and the detection view to footage/live-tests (your own tests only)' })),
     el('p', {
       className: 'note',
-      textContent: state.corners
+      textContent: state.pickingLikeButton
+        ? 'Click the heart on the reel\'s right-hand rail, on a Detection view, with the phone found (outline green). A like is the heart turning red there.'
+        : state.corners
         ? `Click the phone screen's ${CORNER_NAMES[state.corners.length]} corner on a Detection view, as the phone sees it (its top is where the reels scroll to).`
         : locked
           ? 'The phone screen\'s corners are fixed. Unlock to find the phone again.'
@@ -513,6 +543,9 @@ function updateDetectionStatus() {
         : detection.present ? 'phone: IN' : detection.found ? 'phone: outline found, not lit' : 'phone: not found',
     `swipes seen: ${detection.swipes}`,
     last ? `last: ${last.direction}${last.dwell === null ? '' : ` after ${last.dwell.toFixed(1)} s`}, ${last.speed} screens/s` : '',
+    detection.like_button
+      ? `like button: ${detection.heart ?? 'not read yet'} (${Math.round(100 * (detection.heart_red ?? 0))}% red), ${detection.heart_likes} likes seen`
+      : 'like button: not set (Click the like button)',
   ].filter(Boolean).join('\n');
 }
 
@@ -722,6 +755,7 @@ function startCorners() {
     toast('Pick a screen with a Detection view first, like Operator.');
     return;
   }
+  state.pickingLikeButton = false;
   state.corners = [];
   renderDetection();
   drawOverlay();
@@ -733,13 +767,40 @@ function stopCorners() {
   drawOverlay();
 }
 
-function clickCorner(point) {
+// Clicking the phone's like button on a detection view: the eye works out where that is on the straightened screen.
+function startLikeButton() {
+  if (!currentScreen()?.items.some((item) => item.type === 'detection' && stage.isShown(item))) {
+    toast('Pick a screen with a Detection view first, like Operator.');
+    return;
+  }
+  state.corners = null;
+  state.pickingLikeButton = true;
+  renderDetection();
+  drawOverlay();
+}
+
+function stopLikeButton() {
+  state.pickingLikeButton = false;
+  renderDetection();
+  drawOverlay();
+}
+
+function clickLikeButton(point) {
+  const fraction = detectionFraction(point);
+  if (!fraction) return;
+  link.send({ type: 'set_like_button', point: fraction });
+  toast('Like button set: the square on the Detection view turns red when it reads a like.');
+  stopLikeButton();
+}
+
+// Where a click on the preview falls on a Detection view's camera picture, as fractions of it (or null, with a note why).
+function detectionFraction(point) {
   const item = [...currentScreen().items].reverse().find((candidate) => candidate.type === 'detection' && stage.isShown(candidate)
     && point.x >= candidate.x && point.x <= candidate.x + candidate.w && point.y >= candidate.y && point.y <= candidate.y + candidate.h);
   const picture = stage.feeds.get(DETECTION_VIEW);
   if (!item || !picture) {
     toast(item ? 'Waiting for the detection view\'s picture.' : 'Click on a Detection view.');
-    return;
+    return null;
   }
   // The picture is drawn to fit inside the source, like "contain".
   const scale = Math.min(item.w / picture.width, item.h / picture.height);
@@ -748,8 +809,14 @@ function clickCorner(point) {
   const fraction = [(point.x - left) / (picture.width * scale), (point.y - top) / (picture.height * scale)];
   if (fraction.some((value) => value < 0 || value > 1)) {
     toast('Click on the camera picture itself.');
-    return;
+    return null;
   }
+  return fraction;
+}
+
+function clickCorner(point) {
+  const fraction = detectionFraction(point);
+  if (!fraction) return;
   state.corners.push({ point, fraction });
   if (state.corners.length === 4) {
     link.send({ type: 'set_zone', zone: state.corners.map((corner) => corner.fraction) });
@@ -768,6 +835,10 @@ overlay.addEventListener('pointerdown', (event) => {
   const point = toScreenPoint(event);
   if (state.corners) {
     clickCorner(point);
+    return;
+  }
+  if (state.pickingLikeButton) {
+    clickLikeButton(point);
     return;
   }
   const handle = event.target.dataset.handle;
@@ -925,7 +996,7 @@ function drawOverlay(guides = []) {
     }
     overlay.append(box);
   }
-  overlay.classList.toggle('picking', Boolean(state.corners));
+  overlay.classList.toggle('picking', Boolean(state.corners) || state.pickingLikeButton);
   (state.corners ?? []).forEach(({ point }, index) => {
     const mark = el('div', { className: 'corner-mark', textContent: index + 1 });
     Object.assign(mark.style, { left: `${point.x}px`, top: `${point.y}px` });
@@ -947,6 +1018,7 @@ addEventListener('keydown', (event) => {
     undo();
     return;
   }
+  if (event.key === 'Escape' && state.pickingLikeButton) stopLikeButton();
   if (event.key === 'Escape' && state.corners) {
     stopCorners();
     return;
