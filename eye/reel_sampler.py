@@ -9,17 +9,25 @@ what the camera saw. Records live in memory for the visit, never saved.
 
 The system can't tell which reel it was (no ID, caption or sound), only when
 it changed and how long it was watched.
+
+For likes it also keeps a short buffer of stills, taken faster (capture
+settings in config.yaml), for the reel on screen only: when a like comes,
+capture() picks the sharpest still from just before the tap, makes it
+private (privacy.py: the screen's edges cut away, text blurred) and hands it
+on. Only the private picture ever leaves this thread.
 """
 
 from __future__ import annotations
 
 import threading
 from dataclasses import dataclass
+from collections import deque
 from typing import Callable
 
 import cv2
 import numpy as np
 
+from . import privacy
 from .settings import ROOT
 
 STILL_SIZE = (270, 480)  # width, height: an upright phone screen, 9:16
@@ -39,14 +47,17 @@ class ReelRecord:
 
 
 class ReelSampler:
-    def __init__(self, settings: dict, rotate: int, on_reel: Callable[[ReelRecord], None]) -> None:
+    def __init__(self, settings: dict, rotate: int, on_reel: Callable[[ReelRecord], None],
+                 capture: dict | None = None) -> None:
         self.settings = settings
+        self.capture_settings = capture
         self._rotate = rotate
         self._on_reel = on_reel
         self._lock = threading.Lock()
         self._wake = threading.Event()
         self._pending: list = []  # frames and swipes, in order; at most one frame waits
         self._last_offer = -1e9
+        self._last_still = -1e9
         self._stopping = threading.Event()
         self._thread = threading.Thread(target=self._run, name="reel sampler", daemon=True)
         self._clear()
@@ -55,6 +66,7 @@ class ReelSampler:
         self._stills: list = []  # (time, still) for the reel on screen now
         self._reel_since: float | None = None
         self._count = 0
+        self._buffer: deque = deque()  # (time, still): the last moments of the reel on screen, for a like's capture
 
     def start(self) -> None:
         self._thread.start()
@@ -68,7 +80,10 @@ class ReelSampler:
 
     def offer_frame(self, frame: np.ndarray, quad: np.ndarray, t: float) -> None:
         """A camera frame with the phone screen in it (the watcher's thread)."""
-        if t - self._last_offer < self.settings["sample_seconds"]:
+        every = self.settings["sample_seconds"]
+        if self.capture_settings:
+            every = min(every, self.capture_settings["every_seconds"])
+        if t - self._last_offer < every:
             return
         self._last_offer = t
         with self._lock:
@@ -82,6 +97,12 @@ class ReelSampler:
         """A reel was swiped away (the watcher's thread)."""
         with self._lock:
             self._pending.append(("swipe", swipe))
+        self._wake.set()
+
+    def capture(self, t: float, done: Callable[[np.ndarray | None], None]) -> None:
+        """A like at time t: done() gets the private capture, or None if there's no still of the reel to take it from."""
+        with self._lock:
+            self._pending.append(("capture", t, done))
         self._wake.set()
 
     def reset(self) -> None:
@@ -104,6 +125,8 @@ class ReelSampler:
                         self._take_still(*item[1:])
                     elif item[0] == "swipe":
                         self._reel_ended(item[1])
+                    elif item[0] == "capture":
+                        item[2](self._capture(item[1]))
                     else:
                         self._clear()
                 except Exception as error:  # a bad frame mustn't stop the sampling
@@ -117,6 +140,13 @@ class ReelSampler:
         upright = np.float32([[0, 0], [width - 1, 0], [width - 1, height - 1], [0, height - 1]])
         still = cv2.warpPerspective(frame, cv2.getPerspectiveTransform(corners, upright), STILL_SIZE,
                                     flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
+        if self.capture_settings:
+            self._buffer.append((t, still))
+            while self._buffer and self._buffer[0][0] < t - self.capture_settings["buffer_seconds"]:
+                self._buffer.popleft()
+        if t - self._last_still < self.settings["sample_seconds"]:
+            return
+        self._last_still = t
         self._stills.append((t, still))
         if len(self._stills) > CANDIDATES:
             self._stills = self._stills[::2]  # keep them spread across the reel
@@ -125,6 +155,7 @@ class ReelSampler:
         ended = swipe["t"]  # when the swipe began
         started = ended - swipe["dwell"] if swipe.get("dwell") is not None else self._reel_since
         stills, self._stills = self._stills, []
+        self._buffer.clear()  # the buffer is for the reel on screen only
         self._reel_since = swipe["detected_at"]
         if started is None or ended - started < self.settings["min_watch_seconds"]:
             return  # scrolled past, not watched
@@ -138,6 +169,19 @@ class ReelSampler:
         self._count += 1
         jpegs = [cv2.imencode(".jpg", still, [cv2.IMWRITE_JPEG_QUALITY, 85])[1].tobytes() for still in usable]
         self._on_reel(ReelRecord(self._count, started, round(ended - started, 2), jpegs, colour))
+
+
+    def _capture(self, t: float) -> np.ndarray | None:
+        """The sharpest still from just before the tap (the tap puts a thumb and a heart over the picture), made private."""
+        if not self.capture_settings:
+            return None
+        settings = self.capture_settings
+        before = [still for taken, still in self._buffer
+                  if t - settings["buffer_seconds"] <= taken <= t - settings["before_tap"]]
+        candidates = before or [still for _, still in self._buffer] or [still for _, still in self._stills[-1:]]
+        if not candidates:
+            return None
+        return privacy.private(max(candidates, key=privacy.sharpness), settings)
 
 
 def test_reel(number: int, t: float, random: np.random.Generator) -> ReelRecord:

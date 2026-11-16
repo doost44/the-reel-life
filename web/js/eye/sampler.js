@@ -7,8 +7,13 @@
 // When a reel is swiped away, the stills taken while it was on screen become
 // that reel's record, if it was watched long enough. Held in memory for the
 // visit, never saved. Stills are ImageData (RGBA), colours [r, g, b].
+//
+// For likes it also keeps a short buffer of stills, taken faster, for the reel
+// on screen only; capture() picks the sharpest from just before the tap and
+// makes it private (privacy.js).
 
 import { cvLib, roundEven, toImageData, withMats } from './imaging.js';
+import { makePrivate, sharpness } from './privacy.js';
 
 export const STILL_SIZE = [270, 480]; // width, height: an upright phone screen, 9:16
 const CANDIDATES = 12;                 // stills kept while one reel plays (thinned out evenly when it plays long)
@@ -20,11 +25,13 @@ export function rotated(quad, rotate) {
 }
 
 export class ReelSampler {
-  constructor(settings, rotate, onReel) {
+  constructor(settings, rotate, onReel, capture = null) {
     this.settings = settings;
+    this.captureSettings = capture;
     this.rotate = rotate;
     this.onReel = onReel;
     this.lastOffer = -1e9;
+    this.lastStill = -1e9;
     this.clear();
   }
 
@@ -32,11 +39,13 @@ export class ReelSampler {
     this.stills = []; // [time, still] for the reel on screen now
     this.reelSince = null;
     this.count = 0;
+    this.buffer = []; // [time, still]: the last moments of the reel on screen, for a like's capture
   }
 
   // A camera frame (an RGBA Mat) with the phone screen in it.
   offerFrame(frame, quad, t) {
-    if (t - this.lastOffer < this.settings.sample_seconds) return;
+    const every = this.captureSettings ? Math.min(this.settings.sample_seconds, this.captureSettings.every_seconds) : this.settings.sample_seconds;
+    if (t - this.lastOffer < every) return;
     this.lastOffer = t;
     this.takeStill(frame, quad, t);
   }
@@ -44,6 +53,25 @@ export class ReelSampler {
   // A reel was swiped away.
   offerSwipe(swipe) {
     this.reelEnded(swipe);
+  }
+
+  // A like at time t: the private capture (ImageData), or null if there's no still of the reel to take it from.
+  capture(t) {
+    const settings = this.captureSettings;
+    if (!settings) return null;
+    const before = this.buffer.filter(([taken]) => taken >= t - settings.buffer_seconds && taken <= t - settings.before_tap).map(([, still]) => still);
+    const candidates = before.length ? before : this.buffer.length ? this.buffer.map(([, still]) => still) : this.stills.slice(-1).map(([, still]) => still);
+    if (!candidates.length) return null;
+    let best = candidates[0];
+    let bestScore = -1;
+    for (const still of candidates) {
+      const score = sharpness(still);
+      if (score > bestScore) {
+        best = still;
+        bestScore = score;
+      }
+    }
+    return makePrivate(best, settings);
   }
 
   // A new visit: forget the reel on screen and count from 1 again.
@@ -63,6 +91,12 @@ export class ReelSampler {
       cv.warpPerspective(frame, out, transform, new cv.Size(width, height), cv.INTER_LINEAR, cv.BORDER_REPLICATE);
       return toImageData(out);
     });
+    if (this.captureSettings) {
+      this.buffer.push([t, still]);
+      while (this.buffer.length && this.buffer[0][0] < t - this.captureSettings.buffer_seconds) this.buffer.shift();
+    }
+    if (t - this.lastStill < this.settings.sample_seconds) return;
+    this.lastStill = t;
     this.stills.push([t, still]);
     if (this.stills.length > CANDIDATES) this.stills = this.stills.filter((_, i) => i % 2 === 0); // keep them spread across the reel
   }
@@ -72,6 +106,7 @@ export class ReelSampler {
     const started = swipe.dwell !== null && swipe.dwell !== undefined ? ended - swipe.dwell : this.reelSince;
     const stills = this.stills;
     this.stills = [];
+    this.buffer = []; // the buffer is for the reel on screen only
     this.reelSince = swipe.detected_at;
     if (started === null || ended - started < this.settings.min_watch_seconds) return; // scrolled past, not watched
     // Only stills from while it sat still on screen, not mid-swipe.
