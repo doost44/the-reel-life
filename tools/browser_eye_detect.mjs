@@ -1,7 +1,8 @@
 // The Chrome version's swipe detector (web/js/eye/detector.js), run in Node on
 // frames from tools/check_browser_eye.py. Not for running on its own.
 //
-// Reads from stdin: one line of JSON ({"width", "height", "detection"}), then
+// Reads from stdin: one line of JSON ({"width", "height", "detection", "zone",
+// and, to watch the like button too, "hearts", "button" and "rotate"}), then
 // for each frame its time (8 bytes, a little-endian double) and its pixels
 // (width × height × 3 bytes, BGR). Writes one line of JSON per event.
 
@@ -15,11 +16,13 @@ const cv = require(`${root}web/vendor/opencv/opencv.js`);
 await new Promise((resolve) => (cv.Mat ? resolve() : (cv.onRuntimeInitialized = resolve)));
 globalThis.cv = cv;
 const { Detector } = await import(`${root}web/js/eye/detector.js`);
+const { HeartWatcher } = await import(`${root}web/js/eye/hearts.js`);
 
 const chunks = [];
 let buffered = 0;
 let header = null;
 let detector = null;
+let hearts = null;
 let frameBytes = 0;
 let frames = 0;
 let busy = 0;
@@ -50,6 +53,10 @@ function work() {
     buffered = all.length - end - 1;
     detector = new Detector(header.detection);
     if (header.zone) detector.lock(header.zone);
+    if (header.hearts && header.button) {
+      hearts = new HeartWatcher(header.hearts);
+      hearts.setButton(header.button);
+    }
     frameBytes = 8 + header.width * header.height * 3;
   }
   const bgr = new cv.Mat(header.height, header.width, cv.CV_8UC3);
@@ -60,7 +67,16 @@ function work() {
     bgr.data.set(frame.subarray(8));
     cv.cvtColor(bgr, rgba, cv.COLOR_BGR2RGBA);
     const started = performance.now();
-    for (const event of detector.process(rgba, t)) process.stdout.write(`${JSON.stringify(event)}\n`);
+    for (const event of detector.process(rgba, t)) {
+      process.stdout.write(`${JSON.stringify(event)}\n`);
+      if (event.type === 'swipe') hearts?.reset();
+    }
+    if (hearts) {
+      const quad = detector.present ? detector.quad : null;
+      for (const event of hearts.process(rgba, quad, header.rotate ?? 0, t, detector.run === null, detector.landedAt)) {
+        process.stdout.write(`${JSON.stringify({ ...event, detected_at: t })}\n`);
+      }
+    }
     busy += performance.now() - started;
     frames += 1;
   }

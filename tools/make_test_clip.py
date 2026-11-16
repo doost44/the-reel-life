@@ -8,6 +8,12 @@ phone. It's a stand-in until there are real recordings, not a replacement.
 The clip includes fast, normal and slow reels, dark-mode reels, scene cuts
 inside reels, swipes back, and half-swipes that spring back (which must not
 count).
+
+With --likes, some reels are liked part-way through: the like button on the
+rail (the top one) turns from a white outline to a filled red heart, with a
+double-tap's white heart over the middle of the video half the time, and red
+things pass through the video to tempt the detector. The true like times go
+to a .likes.csv, which tools/detect_likes.py scores against.
 """
 
 import argparse
@@ -27,6 +33,7 @@ OUT = settings.ROOT / "tests" / "clips"
 FRAME_SIZE = (720, 480)
 FPS = 30
 SCREEN = (180, 390)  # phone screen content, width × height
+LIKE_BUTTON = (SCREEN[0] - 18, 170)  # the top button on the rail, in screen pixels
 
 
 class Reel:
@@ -35,6 +42,8 @@ class Reel:
         self.dark = rng.random() < 0.2
         self.cut_every = rng.uniform(1.5, 4) if rng.random() < 0.4 else None  # scene cuts inside the video
         self.scenes = [self._scene(), self._scene()]
+        self.liked_at: float | None = None  # when it was liked (--likes)
+        self.red_pass = False                # a red thing crosses the video near the rail (--likes)
         self.blobs = [(rng.uniform(0, SCREEN[0]), rng.uniform(0, SCREEN[1]), rng.uniform(-40, 40), rng.uniform(-40, 40),
                        rng.uniform(12, 40), tuple(int(c) for c in rng.integers(0, 255, 3))) for _ in range(3)]
 
@@ -105,13 +114,15 @@ def main() -> None:
     parser.add_argument("--seconds", type=float, default=90)
     parser.add_argument("--seed", type=int, default=1)
     parser.add_argument("--handheld", action="store_true", help="the phone moves around as if held in a hand")
+    parser.add_argument("--likes", action="store_true", help="some reels are liked: the rail's heart turns red (and a .likes.csv)")
     args = parser.parse_args()
     rng = np.random.default_rng(args.seed)
     OUT.mkdir(parents=True, exist_ok=True)
-    stem = f"synthetic-{'handheld-' if args.handheld else ''}seed{args.seed}"
+    stem = f"synthetic-{'handheld-' if args.handheld else ''}{'likes-' if args.likes else ''}seed{args.seed}"
 
     swipes = plan_swipes(rng, args.seconds)
     reels = [Reel(rng) for _ in range(len(swipes) + 2)]
+    likes = plan_likes(rng, swipes, reels) if args.likes else []
     mat = cv2.GaussianBlur(rng.normal(26, 6, FRAME_SIZE[::-1]).astype(np.float32), (0, 0), 12)
     mat = np.dstack([mat * 0.95, mat, mat * 1.05])
     hand = rng.uniform(0, 2 * math.pi, 8) if args.handheld else None
@@ -132,7 +143,7 @@ def main() -> None:
             to_frame = cv2.getPerspectiveTransform(screen_corners, corners)
             bezel = (corners - corners.mean(axis=0)) * 1.08 + corners.mean(axis=0)
             mask = cv2.warpPerspective(np.ones(SCREEN[::-1], np.float32), to_frame, FRAME_SIZE)[..., None]
-            screen = render_screen(reels, position, t)
+            screen = render_screen(reels, position, t, likes if args.likes else None)
             cv2.fillPoly(frame, [bezel.astype(np.int32)], (12, 12, 14))
             warped = cv2.warpPerspective(screen, to_frame, FRAME_SIZE).astype(np.float32)
             frame = frame * (1 - mask) + warped * mask
@@ -148,7 +159,47 @@ def main() -> None:
         for swipe in swipes:
             out.writerow({key: round(value, 3) if isinstance(value, float) else value for key, value in swipe.items()})
     counts = {kind: sum(s["kind"] == kind for s in swipes) for kind in ("next", "back", "partial")}
+    if args.likes:
+        with open(OUT / f"{stem}.likes.csv", "w", newline="", encoding="utf-8") as file:
+            out = csv.DictWriter(file, ["t", "reel", "double_tap"])
+            out.writeheader()
+            for like in likes:
+                out.writerow({"t": round(like["t"], 3), "reel": like["reel"], "double_tap": int(like["double_tap"])})
+        counts["likes"] = len(likes)
+        print(f"Like button on the upright screen: {LIKE_BUTTON[0] / SCREEN[0]:.3f}, {LIKE_BUTTON[1] / SCREEN[1]:.3f}")
     print(f"Wrote {OUT / stem}.avi ({args.seconds:.0f} s): {counts}")
+
+
+def plan_likes(rng: np.random.Generator, swipes: list[dict], reels: list[Reel]) -> list[dict]:
+    """Some reels liked part-way through, once settled; and red things passing through the video in others."""
+    likes, position, landed = [], 0, 1.5
+    for swipe in swipes:
+        dwell = swipe["start"] - landed
+        reel = position % len(reels)
+        if dwell > 2.5 and not reels[reel].liked_at and rng.random() < 0.45:
+            t = float(rng.uniform(landed + 0.8, swipe["start"] - 0.8))
+            reels[reel].liked_at = t
+            likes.append({"t": t, "reel": reel, "double_tap": bool(rng.random() < 0.5)})
+        elif rng.random() < 0.4:
+            reels[reel].red_pass = True  # a red thing crosses the video near the rail: must not count
+        position += {"next": 1, "back": -1, "partial": 0}[swipe["kind"]]
+        landed = swipe["end"]
+    return likes
+
+
+def draw_heart(screen: np.ndarray, centre: tuple[int, int], size: float, colour: tuple, filled: bool) -> None:
+    x, y = centre
+    r = size / 2
+    left, right = (int(x - r * 0.5), int(y - r * 0.3)), (int(x + r * 0.5), int(y - r * 0.3))
+    points = np.array([[x - r, y - r * 0.2], [x + r, y - r * 0.2], [x, y + r]], np.int32)
+    if filled:
+        cv2.circle(screen, left, int(r * 0.55), colour, -1, cv2.LINE_AA)
+        cv2.circle(screen, right, int(r * 0.55), colour, -1, cv2.LINE_AA)
+        cv2.fillPoly(screen, [points], colour, cv2.LINE_AA)
+    else:
+        cv2.circle(screen, left, int(r * 0.55), colour, 2, cv2.LINE_AA)
+        cv2.circle(screen, right, int(r * 0.55), colour, 2, cv2.LINE_AA)
+        cv2.polylines(screen, [points], True, colour, 2, cv2.LINE_AA)
 
 
 def scroll_position(swipes: list[dict], t: float) -> tuple[float, float | None]:
@@ -168,14 +219,28 @@ def scroll_position(swipes: list[dict], t: float) -> tuple[float, float | None]:
     return position, None
 
 
-def render_screen(reels: list[Reel], position: float, t: float) -> np.ndarray:
+def render_screen(reels: list[Reel], position: float, t: float, likes: list | None = None) -> np.ndarray:
     first = math.floor(position)
     offset = position - first
-    strip = np.vstack([reels[first % len(reels)].render(t), reels[(first + 1) % len(reels)].render(t)])
+    shown = [reels[first % len(reels)], reels[(first + 1) % len(reels)]]
+    scenes = [reel.render(t) for reel in shown]
+    if likes is not None:
+        for reel, scene in zip(shown, scenes):
+            if reel.red_pass:  # a red ball rolling through, close to the rail
+                cv2.circle(scene, (int(SCREEN[0] - 60 + 25 * math.sin(t * 2.1)), int(150 + 60 * math.sin(t * 1.3))), 16, (40, 30, 230), -1)
+            if reel.liked_at is not None and 0 <= t - reel.liked_at < 0.8 and likes[[like["t"] for like in likes].index(reel.liked_at)]["double_tap"]:
+                grow = min(1.0, (t - reel.liked_at) / 0.25)
+                draw_heart(scene, (SCREEN[0] // 2, SCREEN[1] // 2), 70 * grow, (250, 250, 250), True)
+    strip = np.vstack(scenes)
     top = int(offset * SCREEN[1])
     screen = strip[top:top + SCREEN[1]].copy()
     # The app's buttons and caption stay put while the reels move under them.
+    on_screen = shown[0] if offset < 0.5 else shown[1]
     for row in range(4):
+        if row == 0 and likes is not None:
+            liked = on_screen.liked_at is not None and t >= on_screen.liked_at
+            draw_heart(screen, LIKE_BUTTON, 22, (40, 30, 235) if liked else (245, 245, 245), liked)
+            continue
         cv2.circle(screen, (SCREEN[0] - 18, 170 + row * 42), 11, (245, 245, 245), -1)
     cv2.rectangle(screen, (8, SCREEN[1] - 52), (SCREEN[0] - 46, SCREEN[1] - 44), (235, 235, 235), -1)
     cv2.rectangle(screen, (8, SCREEN[1] - 36), (SCREEN[0] - 80, SCREEN[1] - 30), (200, 200, 200), -1)

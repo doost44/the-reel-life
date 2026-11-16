@@ -4,7 +4,8 @@ thread, and hands phone and swipe events to the game on the server's loop.
 It also makes the detection view: the camera picture with the phone
 outline, the straightened screen and live numbers, which pages show like
 a camera called "@detection". And it passes frames and swipes on to the reel
-sampler (the reel face's stills), which never makes it wait.
+sampler (the reel face's stills), which never makes it wait, and watches the
+phone's like button (hearts.py) once it's been shown where it is.
 """
 
 from __future__ import annotations
@@ -14,11 +15,13 @@ import threading
 import traceback
 from typing import Callable
 
+import cv2
 import numpy as np
 
 from .cameras import Camera, CameraHub
 from .detector import Detector
 from .footage import MAX_SECONDS, FootageRecorder
+from .hearts import HeartWatcher
 from .reel_sampler import ReelSampler
 
 DETECTION_VIEW = "@detection"
@@ -26,10 +29,13 @@ DETECTION_VIEW = "@detection"
 
 class SwipeWatcher:
     def __init__(self, hub: CameraHub, settings: dict, on_event: Callable[[dict], None],
-                 loop: asyncio.AbstractEventLoop, sampler: ReelSampler | None = None) -> None:
+                 loop: asyncio.AbstractEventLoop, sampler: ReelSampler | None = None,
+                 hearts: dict | None = None, rotate: int = 0) -> None:
         self.hub = hub
         self.sampler = sampler
         self.detector = Detector(settings)
+        self.hearts = HeartWatcher(hearts) if hearts else None
+        self.rotate = rotate
         self.camera_name = ""
         self.frame_size = (0, 0)
         self._on_event = on_event
@@ -38,6 +44,7 @@ class SwipeWatcher:
         self._view_id = 0
         self._view_lock = threading.Lock()
         self._wanted: tuple[str, list | None] | None = None
+        self._button_wanted: tuple[list | None] | None = None
         self._record_wanted: bool | None = None
         self.recorder: FootageRecorder | None = None
         self._last_error_at = 0.0
@@ -64,6 +71,10 @@ class SwipeWatcher:
         between frames."""
         self._wanted = (camera_name or "", zone)
 
+    def like_button(self, button: list | None) -> None:
+        """Where the like button is on the upright screen (fractions), or None (from the server's thread)."""
+        self._button_wanted = (button,)
+
     def latest(self) -> tuple[np.ndarray | None, int]:
         """The newest detection view, shaped like Camera.latest() so pages can watch it."""
         with self._view_lock:
@@ -80,6 +91,10 @@ class SwipeWatcher:
             "last": detector.last_swipe,
             "recording": round(self.recorder.seconds) if self.recorder else None,
             "recording_folder": self.recorder.folder.name if self.recorder else None,
+            "like_button": self.hearts is not None and self.hearts.button is not None,
+            "heart": self.hearts.state if self.hearts else None,
+            "heart_red": round(self.hearts.share, 2) if self.hearts else None,
+            "heart_likes": self.hearts.likes if self.hearts else 0,
         }
 
     def _run(self) -> None:
@@ -103,11 +118,19 @@ class SwipeWatcher:
                         self.recorder.swipe(event)
                     if self.sampler and event["type"] == "swipe":
                         self.sampler.offer_swipe(event)
+                    if self.hearts and event["type"] == "swipe":
+                        self.hearts.reset()  # a new reel: its button is learnt afresh
+                if self.hearts:
+                    detector = self.detector
+                    quad = detector.quad if detector.present else None
+                    for event in self.hearts.process(frame, quad, self.rotate, arrived, detector._run is None, detector._landed_at):
+                        self._loop.call_soon_threadsafe(self._on_event, event)
                 if self.sampler and self.detector.present and self.detector.quad is not None:
                     self.sampler.offer_frame(frame, self.detector.quad, arrived)
                 # The view only needs to be watchable, not every frame; a recording has every frame.
                 if frame_id % 2 == 0 or self.recorder:
                     view = self.detector.debug_frame(frame, arrived)
+                    self._draw_heart(view)
                     with self._view_lock:
                         self._view = view
                         self._view_id += 1
@@ -120,6 +143,17 @@ class SwipeWatcher:
                     self._last_error_at = arrived
                     traceback.print_exc()
 
+    def _draw_heart(self, view: np.ndarray) -> None:
+        """The square watched for the like button, on the detection view: red when it reads red."""
+        hearts = self.hearts
+        if not hearts or hearts.box is None:
+            return
+        colour = (60, 60, 255) if hearts.state == "red" else (255, 255, 255)
+        cv2.polylines(view, [hearts.box.astype(np.int32)], True, colour, 2)
+        x, y = hearts.box.max(axis=0).astype(int)
+        cv2.putText(view, f"like {hearts.state or '?'} {hearts.share:.0%}", (int(hearts.box[:, 0].min()), y + 16),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.45, colour, 1, cv2.LINE_AA)
+
     def _apply_recording(self, camera: Camera | None) -> None:
         wanted, self._record_wanted = self._record_wanted, None
         if self.recorder and (wanted is False or self.recorder.seconds > MAX_SECONDS):
@@ -129,6 +163,9 @@ class SwipeWatcher:
             self.recorder = FootageRecorder(camera.fps if camera and camera.fps else 30)
 
     def _apply_wanted(self) -> None:
+        button, self._button_wanted = self._button_wanted, None
+        if button is not None and self.hearts:
+            self.hearts.set_button(button[0])
         wanted, self._wanted = self._wanted, None
         if wanted is None:
             return
