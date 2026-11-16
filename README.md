@@ -21,6 +21,8 @@ phone camera ─▶ the phone on the platform          face camera ─▶ the pa
         reel_sampler.py stills of each reel as it plays (its own thread)
         journey.py      the visit: a face seen, the oracle, the phone placed, the face forming
         reel_face.py    the reels counted, their tiles released one by one, desire, the words
+        profile.py      the visit profile: each reel's dwell, likes, swipes back, category; weights per category
+        health.py       the health of every part, for the operator panel
         formation.py    each reel torn into fragments of the face, and how damaged
         look.py         every setting of the face's look (tuned in /look)
         distortion.py   how far the face has formed (its progress)
@@ -188,7 +190,8 @@ network there's no code, and their face shows on its own.
   own brightness, so its light and dark still show. It only starts once the face is forming. From a camera
   looking up you'll mostly get hair at the sides and fringe, not the top of the head.
 - **Tracking lost:** it holds the last pose and skin, and says "TRACKING LOST". It never animates by itself.
-- **No face camera chosen:** a recorded clip plays instead (`reel_face.test_face_clip`, your own face clip),
+- **No face camera chosen:** a recorded clip plays instead (`reel_face.test_face_clip`, your own face clip, at
+  `web/assets/test-face/bored.mp4` so GitHub Pages has it too; see the README there for encoding it small),
   labelled on screen "TEST TRACKING · RECORDED CLIP, NOT A LIVE CAMERA". Never a still presented as live.
 
 ## The look editor (/look)
@@ -229,8 +232,8 @@ face slides from one to the other as it forms, so the look itself tells the stor
 
 **Changing the words:** `config.yaml`, `reel_face.voice.words`: one list per stage of desire. How often:
 `gap_seconds`. **Recorded words:** put `more.wav`, `again.wav`, `one-more.wav`, `dont-stop.wav`... in
-`voice/` and those play instead of the computer's voice (the mouth then follows the recording's
-loudness). The oracle's lines are in `journey.oracle`.
+`voice/` (its README lists every name) and those play instead of the computer's voice (the mouth then follows
+the recording's loudness). The oracle's lines are in `journey.oracle`.
 
 ## Setting it up
 
@@ -266,18 +269,26 @@ reel face, run by hand) and **Cameras** (the phone tracker, the face camera, eve
 - **Preview:** the screen live, or as it looks at any stage.
 - **Journey:** the stage, whether a face and the phone are there, what the oracle is saying. **Phone placed**
   stands in for the phone (press again to leave it to the tracker). **Reset** wipes everything.
+- **Health:** every part of the exhibit, green (working), amber (working, but not as it would be on the day,
+  like the test face clip), red (not working) or grey (off, or not built yet): the eye, the phone camera, the
+  swipe detector, the face camera and MediaPipe's tracking (as the open Reel face screens report them), the
+  like sources, the classifier, the recorded voice clips and listening. The pill beside the title sums it up.
 - **Face camera:** which camera faces the participant.
 - **Reel face:**
   - Reels formed and waiting, tiles, seconds watched, progress and desire.
   - **+1 test reel** and **+5 test reels** (once the phone is placed) feed in reels as if they'd been
     watched: stills from pictures or videos you put in `tests/reels/`, or made-up "TEST REEL" cards.
-  - **Clear face** empties the face; the visit goes on.
+  - **Clear face** empties the face (and the profile's reels and likes); the visit goes on.
+  - **+1 test like** likes the reel on the phone's screen if the tracker sees the phone, otherwise the last reel
+    counted; **Unlike** takes the last like back. Likes count once reels do.
   - **Pause speech** and **Mute** (mute keeps the mouth moving and the words showing).
   - **Save a still** saves the face as it is now as a PNG, with this browser (editor only: for documenting
     yourself, or people who've agreed).
   - **History** shows the face as it was after any reel; **Live** returns.
   - **Formed** sets how far formed it looks (its look and desire) by hand; **Auto** follows the session.
     The look itself is tuned in the look editor.
+- **What it has learned:** the visit profile, live: likes, swipes back, reels skipped, each category's weight,
+  and what's held in memory (reels, stills, captures), which is what the wipe at the end deletes.
 - **Detection** and **Cameras:** as before (below).
 
 Moving and resizing: drag a source to move it, or drag its handles to resize it. Edges snap; hold Alt to
@@ -291,6 +302,7 @@ stop snapping and Shift to keep the shape. Arrows nudge, Delete removes, Ctrl+Z 
 | P | Phone placed / back to the tracker |
 | R | Reset |
 | T | One test reel |
+| L | A like, on the reel on the phone's screen (a like pad or Makey Makey on the platform can type it) |
 
 ## The phone tracker (swipe detection)
 
@@ -323,6 +335,7 @@ $python = "$env:USERPROFILE\.venvs\reel-life\Scripts\python.exe"
 & $python tools\make_footage_demos.py        # demo videos and an angle sheet for presenting, into footage/demos
 & $python tools\list_cameras.py              # every camera and monitor the eye can see
 & $python tools\check_browser_eye.py <clip>  # the Python and Chrome swipe detectors side by side (needs Node.js)
+& $python tools\check_profile.py             # the Python and Chrome visit profiles on the same made-up visit, and empty after it
 ```
 
 ## Footage for presenting
@@ -330,6 +343,22 @@ $python = "$env:USERPROFILE\.venvs\reel-life\Scripts\python.exe"
 `footage/` holds recordings for the submission (see `footage/README.md`): demos made from the synthetic
 clips, and your own test sessions recorded with **● Record footage** in the Detection panel (the phone
 camera only).
+
+## Likes and the visit profile
+
+Each reel counted gets an entry in the **visit profile** (`eye/profile.py`, `web/js/eye/profile.js`): how long it
+was watched, how many times it was liked, whether the visitor came back to it with a swipe back, and, once
+there's a classifier, its category with the classifier's confidence and runner-up. Each reel weighs on its
+category: a like counts most, then a reel watched to the end, then one watched partly, and coming back to it
+adds a little (`config.yaml`, `profile.weights`). Swipes that didn't end a counted reel are counted as skips.
+
+A **like** can come from any source and goes through the same path: the operator's **+1 test like**, the L key
+on a screen (so a like pad or a Makey Makey on the platform that types L works with no extra code), and later
+the heart seen on the phone's screen (`profile.like_sources` switches each one). A like lands on the reel on
+the phone's screen: that reel has no record until it's swiped away, so the like waits and joins it then. With
+no phone being tracked (Phone placed by hand, test reels) it lands on the last reel counted.
+
+The profile is held in memory only and wiped with the visit, like the face.
 
 ## Privacy
 
@@ -339,7 +368,8 @@ camera only).
   GitHub Pages, but nothing goes back: the cameras, the phone tracker and MediaPipe all run in the browser,
   and the pages only talk to each other. It keeps the setup in the browser's storage, never anything of a visit.
 - **Nothing about a visit is saved.** The face camera's pictures go to the screens live and are dropped.
-  The reels' stills, the tiles, the history and the face exist only in memory, for one visit, and are wiped
+  The reels' stills, the tiles, the history, the visit profile (likes and all) and the face exist only in
+  memory, for one visit, and are wiped
   when it ends, when a new one starts (visits are counted, so even one that starts the instant the last
   ends gets a clean slate), or on reset.
 - **The visitor's still** is held in memory only, for up to five minutes, and deleted as soon as a new visit

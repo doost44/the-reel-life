@@ -14,7 +14,9 @@ Messages, as JSON:
               journey (where the visit is, often), oracle {text} (a new line, as it's said),
               reel_face (how far the face has formed, and its desire),
               tile (one tile of the face, as it's released),
-              word {text, desire, clip, muted} (the face speaking, as it starts), swipe (each one detected)
+              word {text, desire, clip, muted} (the face speaking, as it starts), swipe (each one detected),
+              profile (what the system has learned this visit: eye/profile.py), like {source, reel, likes},
+              unlike {likes}; status also carries health (every part's state, for the operator panel)
   from pages: watch {cameras}, setup {setup}, refresh_devices,
               open_screen {id}, close_screen {id}, lock_zone, unlock_zone,
               set_zone {zone: four [x, y] corners as fractions of the picture},
@@ -25,7 +27,9 @@ Messages, as JSON:
               reelface_reset (the face back to nothing, the visit goes on),
               reelface_scrub {reels or null}, reelface_test_reels {count},
               reelface_intensity {value 0-1, or null to follow the session},
-              speech_pause {paused}, speech_mute {muted}
+              speech_pause {paused}, speech_mute {muted},
+              like {source: test, key...} (a like, on the reel on the phone's screen), unlike {source},
+              face_health {tracking: ready/starting/failed, picture, face} (a reel face screen, every few seconds)
 Camera pictures go to pages as binary: one byte for the camera's name's
 length, the name, then a JPEG. The detection view is sent the same way, as
 "@detection", and the face camera as "@face". Nothing from the face camera
@@ -53,8 +57,9 @@ import numpy as np
 import segno
 from aiohttp import WSMsgType, web
 
-from . import cameras, look, monitors, settings
+from . import cameras, health, look, monitors, settings
 from .journey import Journey
+from .profile import Profile
 from .reel_face import PlanJob, ReelFace
 from .reel_sampler import ReelRecord, ReelSampler
 from .watcher import DETECTION_VIEW, SwipeWatcher
@@ -62,6 +67,7 @@ from .watcher import DETECTION_VIEW, SwipeWatcher
 UPDATES_PER_SECOND = 10
 FACE_VIEW = "@face"
 FACE_REPORT_SECONDS = 2  # a page's "I see a face" holds this long without another
+HEALTH_REPORT_SECONDS = 6  # a reel face screen's report on its face camera and tracking holds this long
 MOVEMENT_REPORT_SECONDS = 3  # ...and its "I see movement"
 HOTSPOT_ADDRESS = "192.168.137.1"  # this computer, when it runs Windows' mobile hotspot
 STILL_MOST_BYTES = 8 * 1024 * 1024
@@ -101,6 +107,8 @@ class Client:
         self.ws = ws
         self.watching: set[str] = set()
         self.face_seen_at = -1e9  # when this page last said it sees a face
+        self.face_health: dict | None = None  # ...and how its face camera and tracking are doing
+        self.face_health_at = -1e9
         self.movement_seen_at = -1e9  # ...or movement
         self._messages: list[str] = []
         self._frames: dict[str, bytes] = {}
@@ -140,6 +148,7 @@ class Eye:
         self.hub = cameras.CameraHub(self.camera_settings)
         self.journey = Journey(config["journey"], self._broadcast)
         self.reel_face = ReelFace(config["reel_face"])
+        self.profile = Profile(config["profile"])
         self._visit_seen = self.journey.visits
         self._stage_seen = self.journey.stage
         self.sampler: ReelSampler | None = None
@@ -199,6 +208,7 @@ class Eye:
         client.send_json({"type": "hello", "setup": self.setup, "devices": self.devices,
                           "monitors": self.monitors, "status": self._status(),
                           "journey": self.journey.snapshot(time.monotonic()), "reel_face": self.reel_face.message(),
+                          "profile": self.profile.message(),
                           "still": self._still_message(),
                           "look_settings": look.described()})
         for tile in self.reel_face.shown_tiles():
@@ -268,7 +278,9 @@ class Eye:
             self._broadcast(self.reel_face.message())
         elif kind == "reelface_reset":
             self.reel_face.reset_copy()
+            self.profile.clear_reels()
             self._broadcast(self.reel_face.message())
+            self._broadcast(self.profile.message())
         elif kind in ("speech_pause", "speech_mute"):
             if kind == "speech_pause":
                 self.reel_face.speech_paused = bool(message.get("paused"))
@@ -277,9 +289,22 @@ class Eye:
             self._broadcast(self.reel_face.message())
         elif kind == "reelface_test_reels":
             self.journey.begin_watching(t)
-            if not (self.journey.stage == "forming" and self.reel_face.add_test_reels(int(message.get("count", 1)), t)):
+            added = self.reel_face.add_test_reels(int(message.get("count", 1)), t) if self.journey.stage == "forming" else []
+            if not added:
                 client.send_json({"type": "notice", "text": "Test reels count once the oracle has asked to watch some: wait for it to ask for the phone, then press Phone placed."})
+            for reel in added:
+                self.profile.add_reel(reel.number, "test", reel.started, reel.watched, len(reel.stills))
             self._broadcast(self.reel_face.message())
+            self._broadcast(self.profile.message())
+        elif kind == "like":
+            self._like(str(message.get("source") or "test"), t, client)
+        elif kind == "unlike":
+            if self.journey.counting and self.profile.unlike():
+                self._broadcast({"type": "unlike", "likes": len(self.profile.likes)})
+                self._broadcast(self.profile.message())
+        elif kind == "face_health":
+            client.face_health = {key: message.get(key) for key in ("tracking", "picture", "face")}
+            client.face_health_at = t
         elif kind == "climax_now":
             if self.journey.stage == "forming" and self.reel_face.shown:
                 self._begin_climax(t)
@@ -301,9 +326,29 @@ class Eye:
 
     def _status(self) -> dict:
         open_screens = [screen_id for screen_id, window in self.windows.items() if window.poll() is None]
-        return {"type": "status", "cameras": self.hub.info(), "open_screens": open_screens,
-                "detection": self.watcher.info() if self.watcher else None,
-                "phone_override": self.journey.phone_override}
+        cameras_info = self.hub.info()
+        detection = self.watcher.info() if self.watcher else None
+        face, feed = self._face_feed()
+        return {"type": "status", "cameras": cameras_info, "open_screens": open_screens,
+                "detection": detection, "phone_override": self.journey.phone_override,
+                "health": health.parts(
+                    eye="python", detection_camera=self.setup.get("detection_camera") or "",
+                    camera=cameras_info.get(self.setup.get("detection_camera") or ""), detection=detection,
+                    face_feed=feed, face_camera=cameras_info.get(face) if feed == "camera" else None,
+                    face_reports=self._face_reports(), like_sources=self.config["profile"]["like_sources"],
+                    clips=self._clips_found(), clips_wanted=len(self._clip_names()))}
+
+    def _face_reports(self) -> list[dict]:
+        """What the open reel face screens last said about their face camera and tracking."""
+        t = time.monotonic()
+        return [client.face_health for client in self.clients
+                if client.face_health and t - client.face_health_at < HEALTH_REPORT_SECONDS]
+
+    def _clip_names(self) -> list[str]:
+        return sorted({word for band in self.config["reel_face"]["voice"]["words"] for word in band} | {"scream"})
+
+    def _clips_found(self) -> int:
+        return sum(1 for word in self._clip_names() if self.reel_face.clip_for(word))
 
     # The cameras
 
@@ -347,6 +392,8 @@ class Eye:
         if event["type"] == "phone":
             self.journey.on_phone(event["present"], event["t"])
         elif event["type"] == "swipe":
+            if self.journey.counting:
+                self.profile.on_swipe(event)
             self._broadcast(event)  # every detected swipe, for testing and tuning
 
     def _on_reel(self, reel: ReelRecord) -> None:
@@ -354,7 +401,28 @@ class Eye:
         It counts only once the phone is on the platform."""
         self.journey.begin_watching(time.monotonic())  # the oracle asked, and here's the first
         if self.journey.counting and self.reel_face.add_reel(reel):
+            self.profile.add_reel(reel.number, "phone", reel.started, reel.watched, len(reel.stills))
             self._broadcast(self.reel_face.message())
+            self._broadcast(self.profile.message())
+
+    def _like(self, source: str, t: float, client: Client | None = None) -> None:
+        """A like, from any source (config.yaml, profile.like_sources; the operator's test likes always work).
+        It lands on the reel on the phone's screen if the tracker sees the phone, otherwise on the last reel counted."""
+        if source != "test" and not self.config["profile"]["like_sources"].get(source, False):
+            return
+        problem = None
+        if not self.journey.counting:
+            problem = "Likes count once reels do: wait for the oracle to ask for reels, then watch one (or press +1 reel)."
+        else:
+            on_screen = self.journey.phone and self.journey.phone_override is None
+            like = self.profile.like(t, source, on_screen)
+            if like is None:
+                problem = "Nothing to like yet: watch a reel first (or press +1 reel)."
+            else:
+                self._broadcast({"type": "like", "source": source, "reel": like.reel, "likes": len(self.profile.likes)})
+                self._broadcast(self.profile.message())
+        if problem and client is not None and source == "test":
+            client.send_json({"type": "notice", "text": problem})
 
     def _follow_visit(self, t: float) -> None:
         """Wipes the reel face when a visit starts or ends (visits are counted,
@@ -364,9 +432,11 @@ class Eye:
         if self.journey.visits != self._visit_seen:
             self._visit_seen = self.journey.visits
             self.reel_face.begin()
+            self.profile.begin()
             changed = True
         elif self.journey.stage in ("empty", "ended") and self.reel_face.on:
             self.reel_face.end()
+            self.profile.end()
             changed = True
         if self.journey.stage != self._stage_seen:
             if self.journey.stage == "asking":
@@ -375,6 +445,7 @@ class Eye:
         if changed:
             self.sampler.reset()
             self._broadcast(self.reel_face.message())
+            self._broadcast(self.profile.message())
 
     def _begin_climax(self, t: float) -> None:
         self.journey.begin_climax(t)
@@ -600,6 +671,8 @@ def run(port: int | None = None, open_editor: bool = False, open_screens: bool =
     mimetypes.add_type("text/javascript", ".mjs")
     mimetypes.add_type("application/wasm", ".wasm")
     app.router.add_static("/vendor", WEB / "vendor")
+    # The test face clip (reel_face.test_face_clip), for pages opened here with ?local, which play it themselves.
+    app.router.add_static("/web/assets", WEB / "assets")
     # Recorded words for the face to speak (reel_face.voice.clips), if any.
     voice = settings.ROOT / config["reel_face"]["voice"]["clips"]
     voice.mkdir(exist_ok=True)

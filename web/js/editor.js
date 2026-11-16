@@ -2,8 +2,9 @@
 // which camera each source shows and which monitor each screen opens on.
 // Every change goes to the eye, which saves it to setup.json and passes it
 // straight on to the open screens. It also runs the exhibit by hand: the
-// journey (phone placed, reset) and the reel face (test reels, history,
-// intensity). The left panel's tabs split it: Screens, Visit, Cameras.
+// journey (phone placed, reset), the reel face (test reels, test likes,
+// history, intensity), the health of every part, and what the system has
+// learned this visit. The left panel's tabs split it: Screens, Visit, Cameras.
 
 import { startBackdrop } from './backdrop.js';
 import { connect } from './link.js';
@@ -69,6 +70,8 @@ $('#journey-reset').onclick = () => link.send({ type: 'reset' });
 $('#reelface-test-1').onclick = () => link.send({ type: 'reelface_test_reels', count: 1 });
 $('#reelface-test-5').onclick = () => link.send({ type: 'reelface_test_reels', count: 5 });
 $('#reelface-reset').onclick = () => link.send({ type: 'reelface_reset' });
+$('#test-like').onclick = () => link.send({ type: 'like', source: 'test' });
+$('#test-unlike').onclick = () => link.send({ type: 'unlike', source: 'test' });
 $('#reelface-history').oninput = (event) => link.send({ type: 'reelface_scrub', reels: Number(event.target.value) });
 $('#reelface-live').onclick = () => link.send({ type: 'reelface_scrub', reels: null });
 $('#reelface-intensity').oninput = (event) => link.send({ type: 'reelface_intensity', value: Number(event.target.value) / 100 });
@@ -100,7 +103,14 @@ function onMessage(message) {
       receiveSetup(message.setup);
       showJourney(message.journey);
       showReelFace(message.reel_face);
+      showProfile(message.profile);
       stage.still(message.still);
+      break;
+    case 'profile':
+      showProfile(message);
+      break;
+    case 'like':
+      toast(message.reel === null ? 'Liked: the reel on the phone now.' : `Liked: reel ${message.reel}.`);
       break;
     case 'journey':
       showJourney(message);
@@ -197,7 +207,40 @@ function showReelFace(info) {
   $('#speech-mute').textContent = info.muted ? 'Unmute' : 'Mute';
 }
 
+// What the system has learned this visit (eye/profile.py): likes, swipes back, skips, and each category's weight.
+function showProfile(profile) {
+  if (!profile) return;
+  const pending = profile.pending_likes ? [el('small', { textContent: ` (${profile.pending_likes} on screen)` })] : [];
+  $('#profile-likes').replaceChildren(String(profile.likes), ...pending);
+  $('#profile-back').textContent = String(profile.back);
+  $('#profile-skipped').textContent = String(profile.skipped);
+  const weights = Object.entries(profile.weights ?? {});
+  const heaviest = Math.max(1, ...weights.map(([, weight]) => weight));
+  $('#profile-weights').replaceChildren(...weights.map(([category, weight]) => el('li', {},
+    el('span', { textContent: category }),
+    el('span', { className: 'bar', style: `width: ${Math.max(2, (100 * Math.max(0, weight)) / heaviest)}%` }),
+    el('span', { className: 'value', textContent: weight.toFixed(1) }))));
+  const held = profile.held ?? {};
+  $('#profile-readout').textContent = profile.on
+    ? `${profile.reels} reels (${profile.liked_reels} liked, ${profile.revisits} came back to), ${profile.watched} s · held in memory: ${held.stills ?? 0} stills, ${held.captures ?? 0} captures`
+    : 'No visit yet.';
+}
+
+// Every part of the exhibit, green, amber, red or grey (eye/health.py).
+function showHealth(parts) {
+  if (!parts) return;
+  $('#health').replaceChildren(...parts.map((part) => el('li', { title: `${part.name}: ${part.detail}` },
+    el('span', { className: `dot ${part.state === 'off' ? '' : part.state}` }),
+    el('span', { textContent: part.name }),
+    el('span', { className: 'detail', textContent: part.detail }))));
+  const worst = parts.some((part) => part.state === 'bad') ? 'bad' : parts.some((part) => part.state === 'warn') ? 'warn' : 'ok';
+  const problems = parts.filter((part) => part.state === 'bad').length;
+  $('#health-summary').replaceChildren(el('span', { className: `dot ${worst}` }),
+    el('span', { textContent: worst === 'ok' ? 'all well' : worst === 'warn' ? 'check amber' : `${problems} not working` }));
+}
+
 function applyStatus(status) {
+  showHealth(status.health);
   const openChanged = status.open_screens.join() !== state.openScreens.join();
   state.cameras = status.cameras;
   state.openScreens = status.open_screens;

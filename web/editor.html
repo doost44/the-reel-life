@@ -52,6 +52,10 @@
           </div>
         </section>
         <section data-tab="visit">
+          <h2>Health <span id="health-summary" class="pill"><span class="dot"></span><span>waiting…</span></span></h2>
+          <ul id="health" class="health-list" title="Every part of the exhibit: green working, amber working but not as on the day, red not working, grey off or not built yet"></ul>
+        </section>
+        <section data-tab="visit">
           <h2>Reel face <a href="look.html" class="small-link" title="How it forms, melts and breaks">Look editor →</a></h2>
           <div class="stats">
             <div><div class="stat-label">Desire</div><div id="reelface-desire" class="stat-value">0<small>%</small></div></div>
@@ -67,6 +71,10 @@
             <button id="reelface-test-1" class="small" title="A made-up reel, as if one was watched (pictures or videos in tests/reels, or invented). Counts once the phone is placed (T on a screen)">+1 reel</button>
             <button id="reelface-test-5" class="small">+5 reels</button>
             <button id="reelface-reset" class="small danger" title="The face back to nothing; the visit goes on">Clear face</button>
+          </div>
+          <div class="button-row">
+            <button id="test-like" class="small" title="A like, as if the visitor liked something: on the reel on the phone's screen if the tracker sees the phone, otherwise on the last reel counted (L on a screen, or a like pad that types L)">+1 test like</button>
+            <button id="test-unlike" class="small ghost" title="The last like taken back">Unlike</button>
           </div>
           <div class="button-row">
             <button id="speech-pause" class="small ghost" title="The face stops saying words for now">Pause speech</button>
@@ -86,6 +94,17 @@
             <button id="reelface-auto" class="small ghost">Auto</button>
           </label>
           <p class="note">The participant's face, tracked live, formed from the reels they watch. Held for one visit only; nothing is saved.</p>
+        </section>
+        <section data-tab="visit">
+          <h2>What it has learned</h2>
+          <div class="mini-stats">
+            <div><div class="stat-label">Likes</div><div id="profile-likes" class="mini-value">0</div></div>
+            <div><div class="stat-label">Swipes back</div><div id="profile-back" class="mini-value">0</div></div>
+            <div><div class="stat-label">Skipped</div><div id="profile-skipped" class="mini-value">0</div></div>
+          </div>
+          <ul id="profile-weights" class="weights" title="Each category's weight: likes count most, then a reel watched to the end, then one watched partly (config.yaml, profile)"></ul>
+          <p id="profile-readout" class="note"></p>
+          <p class="note">The visit profile: every reel, how long, liked or not, and (once there's a classifier) its category. In memory only, wiped with the visit.</p>
         </section>
 
         <section data-tab="cameras">
