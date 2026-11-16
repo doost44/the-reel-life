@@ -232,7 +232,7 @@ face slides from one to the other as it forms, so the look itself tells the stor
 | Light and colour | **Gloss lines** (wet, waxy highlights where the surface ripples), **Heat colour** (a heat camera's orange, yellow and green), **Flush** (the fever of wanting, more with desire) |
 | Breaking | **Fracture** (pieces pulled apart and sliding), **Holes** (pieces missing), **Dripping edges** |
 | Hair and ears | **Show hair and ears** (0 at both ends switches them off, and the second model with them), **Fragments per reel**, **Fragment size**, **Likeness** (how much of the real hair's light and dark the reels take) |
-| Categories | One category at a time: its **Regions** (click to add or take away), its **Material**, how strong the material is, and each setting it pushes. **+1 reel** and **+1 liked reel** add a test reel in that category; **Reset defaults** goes back to `config.yaml`'s. See "Categories in the face". |
+| Categories | One category at a time: its **Regions** (click to add or take away), its **Material**, how strong the material is, its **Shards** behaviour and how strong it is, and each setting it pushes. **+1 reel** and **+1 liked reel** add a test reel in that category; **Reset defaults** goes back to `config.yaml`'s. See "Categories in the face". |
 
 **Changing the words:** `config.yaml`, `reel_face.voice.words`: one list per stage of desire. How often:
 `gap_seconds`. **Recorded words:** put `more.wav`, `again.wav`, `one-more.wav`, `dont-stop.wav`... in
@@ -424,6 +424,12 @@ with a glossy, swollen mouth and cheeks; mostly luxury, gold-leaf eyes and jaw. 
   deepfried (a meme saved a hundred times), glassy (soft, wet, a hard highlight), tight (hard contrast, pulled
   into rows), cracked (feverish red, split), sunset (a holiday sky bleeding in) and smear (smeared sideways,
   colours split).
+- **Shards:** how its share of the energy's free shards behaves round the face (`shards`, `swarm.js`), as
+  many of them as its share of the visit, more as the face forms (`shards_coverage`): hungry (Food: they crowd
+  the mouth and gnaw), preen (Beauty: slow circles round the face, catching the light), orbit (Money: tight
+  laps round the eyes), bounce (Comedy: hops and wobbles), drift (Pets: slow and soft, nuzzling the cheeks),
+  tense (Fitness: held in rows, squeezed and released), jitter (Outrage: sudden spikes off course), sprawl
+  (Travel: wide lazy arcs out to the edge) and pulse (Music: swelling and shrinking on a beat, `beat_bpm`).
 - **Pushes:** look settings it moves (Food pushes Gloss lines and Melt; Outrage pushes Flush and Fracture;
   Music pushes Trails and Flow...), by up to its amount when the whole visit is that category, less as its
   share of the visit's weight falls (the visit profile's weights: likes count most).
@@ -434,7 +440,7 @@ nothing. Every number is tuned in the look editor's **Categories** group and sav
 looks). `tools/check_look.py` checks both eyes make the same look from it.
 
 Not done: the brief's enlarged eyes (Beauty, Pets) and fur at the hairline (Pets) would need the face's shape
-warped by region, and Music's rhythmic pulse shows only as its smear and pushes.
+warped by region. Each category's spoken personality comes with the voices (Phase 4).
 
 ## Privacy
 
