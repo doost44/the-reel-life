@@ -20,7 +20,9 @@ DETECTION_MODE = {**DEFAULT_MODE, "fps": 60}
 
 
 def load_config() -> dict:
-    return YAML(typ="safe").load(CONFIG_PATH.read_text(encoding="utf-8"))
+    config = YAML(typ="safe").load(CONFIG_PATH.read_text(encoding="utf-8"))
+    look.set_categories((config.get("category_looks") or {}).get("categories"))  # the look's category defaults
+    return config
 
 
 def load_setup() -> dict | None:

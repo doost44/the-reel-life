@@ -206,6 +206,72 @@ classifier:
       prompts: ["people dancing", "a concert with a crowd and stage lights", "someone singing into a microphone",
                 "a dance trend video", "a DJ at a party", "a person playing guitar"]
 
+# How each category shows in the face (A3 phase 3: eye/look.py, reelface.js). These
+# are the defaults: the look editor's Categories group tunes them and saves them with
+# the look (setup.json), like any other setting.
+#   regions   where its fragments land on the face: eyes, brows, forehead, nose, mouth,
+#             cheeks, jaw, skin (the face but its features), whole
+#   material  how its fragments are treated as they land: gloss, porcelain, gold, deepfried,
+#             glassy, tight, cracked, sunset, smear (or none)
+#   pushes    look settings it pushes, by how much at the first reels and at the full face,
+#             in the setting's own units; scaled by the category's share of the visit
+#   material_amount  how strong the material is, at the first reels and at the full face
+category_looks:
+  region_share: 0.6           # of a watched reel's face fragments, this share land in its category's regions
+  region_fit: 1.5             # a fragment in its regions is at most this many times the regions' own radius (so the eyes stay the eyes)
+  wait_seconds: 2.0           # a reel waits this long for its category before it's cut anyway (unsorted)
+  liked:                      # a liked reel's fragments: all in its regions, bigger, sharper, with a pulse
+    region_share: 1.0
+    size: 1.6                 # times the usual fragment size
+    damage: 0.3               # times the usual JPEG damage and colour bleed
+    pulse_seconds: 1.6        # how long the bright pulse lasts as one lands
+  categories:
+    "Food":
+      regions: [mouth, cheeks]
+      material: gloss
+      material_amount: [0.5, 0.9]
+      pushes: {gloss: [0.15, 0.4], melt: [0.05, 0.25]}
+    "Beauty / fashion":
+      regions: [skin]
+      material: porcelain
+      material_amount: [0.5, 0.9]
+      pushes: {likeness: [0.1, 0.2], jpeg: [-0.05, -0.2]}
+    "Money / luxury":
+      regions: [eyes, jaw]
+      material: gold
+      material_amount: [0.5, 0.9]
+      pushes: {gloss: [0.1, 0.25], fracture: [0.0, 0.1]}
+    "Comedy / memes":
+      regions: [mouth]
+      material: deepfried
+      material_amount: [0.6, 1.0]
+      pushes: {jpeg: [0.15, 0.3], bleed: [0.1, 0.3], stretch: [0.05, 0.2]}
+    "Pets / cute":
+      regions: [eyes]
+      material: glassy
+      material_amount: [0.5, 0.9]
+      pushes: {faint: [0.05, 0.1], melt: [0.05, 0.15]}
+    "Fitness / sport":
+      regions: [jaw, brows]
+      material: tight
+      material_amount: [0.5, 0.9]
+      pushes: {stretch: [0.1, 0.3], melt: [-0.05, -0.2]}
+    "Outrage / news":
+      regions: [forehead, cheeks]
+      material: cracked
+      material_amount: [0.5, 1.0]
+      pushes: {flush: [0.15, 0.35], fracture: [0.1, 0.3]}
+    "Travel / scenery":
+      regions: [skin]
+      material: sunset
+      material_amount: [0.4, 0.8]
+      pushes: {heat: [0.1, 0.3], bleed: [0.05, 0.2]}
+    "Music / dance":
+      regions: [whole]
+      material: smear
+      material_amount: [0.4, 0.8]
+      pushes: {mosh: [0.05, 0.15], flow: [0.1, 0.3]}
+
 browser:
   # Chrome or Edge, for opening screens fullscreen on their monitors.
   # Leave empty to find it automatically.
