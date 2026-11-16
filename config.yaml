@@ -125,11 +125,86 @@ profile:
     revisit: 0.5              # came back to it with a swipe back
     skip: -0.15               # swiped past too soon to count: once skipped reels can be classified (phase 2), taken from their category
   # Where likes can come from. Each one can be switched off here; the operator's
-  # test likes always work. key: L on a screen (and a like pad that types L).
+  # test likes always work.
   like_sources:
-    key: true
-    heart: false              # seeing the heart on the phone's screen: not built yet (A3 phase 2)
-  unclassified: "Unclassified"  # a reel's category until there's a classifier (A3 phase 2)
+    key: true                 # a key on a screen: the like pad (a USB arcade button or Makey Makey) types it
+    heart: true               # the like button on the phone's screen turning red (click it once in the Detection view)
+  like_keys: ["l"]            # which keys are a like (a Makey Makey sends space, arrows, w a s d f g, or a click)
+  unclassified: "Unclassified"  # a reel's category while the classifier is still looking at it
+
+# Seeing a like on the phone's own screen (eye/hearts.py, web/js/eye/hearts.js).
+# Click the like button once on a Detection view to say where it is; then each
+# frame the eye looks at a small square there on the straightened screen. The
+# button turning a saturated red, and staying red, is a like; red going away is
+# an unlike. Red video under the button can't trigger it: only that square is
+# looked at, and only while the screen sits still. A double-tap on the video
+# fills the same button, so it's caught too.
+hearts:
+  box: 0.07                   # the square looked at, as a fraction of the screen's width
+  red_hues: [168, 8]          # OpenCV hue (0-180) range that counts as the heart's red: 168-180 and 0-8 (≈ 335°-16°)
+  min_saturation: 120         # 0-255
+  min_value: 110
+  red_share: 0.22             # this share of the square red: filled
+  outline_share: 0.08         # ...and below this: an outline (between the two holds the last state)
+  frames: 3                   # the same for this many frames in a row, while the screen is still, before it counts
+  settle_seconds: 0.4         # after a swipe lands, the new reel's button is only read after this long (its state is learnt, not a like)
+  max_drift: 0.03             # the phone's outline moved more than this (fraction of the screen's diagonal) since the button was read: hold
+
+# A capture of the reel at the moment of a like, for the classifier. Taken from
+# stills the sampler takes faster while a reel plays, held for a moment, never
+# saved: the sharpest one from just before the tap (the tap puts a thumb and a
+# heart over the picture). Before anything sees it, the screen's edges are cut
+# away (the status bar with notifications, the caption, username and comments,
+# the button rail) and anything left that looks like text is blurred.
+capture:
+  every_seconds: 0.1          # how often a still goes into the buffer while a reel plays
+  buffer_seconds: 1.5         # how far back the buffer reaches
+  before_tap: 0.05            # only stills at least this long before the like
+  crop: {top: 0.09, bottom: 0.27, left: 0.0, right: 0.17}   # fractions of the upright screen cut away
+  blur_text: true             # blur anything left that looks like lines of text
+  thumbnail_width: 54         # the tiny, degraded picture the screens may show of it (the HUD, the receipt)
+
+# Sorting reels into categories (eye/classifier.py, web/js/eye/classifier.js):
+# CLIP ViT-B/32, on this computer, never online. Each category is described by
+# a few sentences; a picture belongs to the one it's most like. After changing
+# any category or sentence, run tools/embed_categories.py (it turns the
+# sentences into what the classifier compares against; the Health panel says
+# when that's needed). Every reel watched is classified from one of its stills;
+# a liked reel from its capture, which wins.
+classifier:
+  model: "web/vendor/clip/vision_model_bnb4.onnx"     # Xenova/clip-vit-base-patch32, 4-bit (58 MB), MIT licence
+  embeddings: "web/vendor/clip/categories.json"       # made by tools/embed_categories.py
+  logit_scale: 100            # CLIP's own: how sharply the confidence picks one category
+  floor: 0.3                  # less confident than this: Unreadable
+  unreadable: "Unreadable"
+  categories:
+    - name: "Food"
+      prompts: ["a photo of a plate of food", "someone cooking in a kitchen", "a close-up of a burger, pizza or dessert",
+                "a recipe video", "street food being served", "a person eating"]
+    - name: "Beauty / fashion"
+      prompts: ["a makeup tutorial", "a close-up of a face with makeup", "an outfit try-on in a mirror",
+                "a fashion model posing", "skincare products", "a hairstyle being done"]
+    - name: "Money / luxury"
+      prompts: ["a luxury sports car", "a stack of cash", "a mansion with a pool", "designer watches and jewellery",
+                "a private jet", "a stock market chart on a phone"]
+    - name: "Comedy / memes"
+      prompts: ["a meme with text over a picture", "a funny reaction face", "a comedy skit filmed on a phone",
+                "a cartoon meme", "people laughing at a prank", "a screenshot of a funny tweet"]
+    - name: "Pets / cute"
+      prompts: ["a cute dog", "a cat", "a puppy or kitten", "a baby animal", "a pet doing something funny",
+                "a small fluffy animal"]
+    - name: "Fitness / sport"
+      prompts: ["a person lifting weights at the gym", "a workout video", "a football match", "a basketball dunk",
+                "someone running", "a person doing yoga"]
+    - name: "Outrage / news"
+      prompts: ["a news broadcast", "a protest in the street", "a politician speaking at a podium",
+                "a headline with breaking news", "a person ranting angrily into the camera", "a fire or disaster scene"]
+    - name: "Travel / scenery"
+      prompts: ["a beach at sunset", "mountains and a lake", "a city skyline at night", "a hotel infinity pool",
+                "a drone shot of a landscape", "a tropical island"]
+    - name: "Music / dance"
+      prompts: ["people dancing", "a concert with a crowd and stage lights", "someone singing into a microphone",
+                "a dance trend video", "a DJ at a party", "a person playing guitar"]
 
 browser:
   # Chrome or Edge, for opening screens fullscreen on their monitors.
