@@ -41,6 +41,7 @@
 // back, a still, with a code to take it away.
 
 import { MotionSensor } from './presence.js';
+import { pushedValues } from './eye/look-settings.js';
 import { scream } from './scream.js';
 import { HeadSegmenter } from './segmenter.js';
 import { FaceVoice, mouthShape } from './speech.js';
@@ -672,6 +673,7 @@ export class ReelFaceView {
     const visit = this.visit;
     const blob = await fetch(`data:image/jpeg;base64,${image}`).then((response) => response.blob());
     const tile = { ...rest, blob, picture: animate ? await createImageBitmap(blob) : null, settled: !animate, arrived: performance.now() };
+    tile.material = this.materialFor(tile); // its category's, as strong as the look says now: kept for redraws
     if (visit !== this.visit) {
       tile.picture?.close(); // the face was cleared while it was decoding
       return;
@@ -692,6 +694,25 @@ export class ReelFaceView {
       this.swarm.spend(this.swarm.shareFor(this.sizeOf(tile), 1)); // the cloud as it would be by now
       this.rebuildSoon();
     }
+  }
+
+  // A tile's material: its category's (the look's Categories), as strong as it is this far into the face.
+  materialFor(tile) {
+    const look = this.stage.look;
+    const kind = tile.category ? look?.categories?.[tile.category]?.material : null;
+    const ramp = tile.category ? look?.values?.[`${tile.category}/material`] : null;
+    if (!kind || kind === 'none' || !ramp) return null;
+    const at = Math.min(1, Math.max(0, this.formation ?? 0));
+    return { kind, amount: ramp[0] + (ramp[1] - ramp[0]) * at };
+  }
+
+  // How strongly a liked tile is pulsing as it lands (0 once it's done): two beats over the eye's pulse time.
+  pulseOf(tile, now) {
+    if (!tile.liked) return 0;
+    const seconds = this.info?.liked_pulse ?? 1.6;
+    const t = (now - tile.arrived) / 1000 / seconds;
+    if (t >= 1) return 0;
+    return (0.5 + 0.5 * Math.cos(t * Math.PI * 4)) * (1 - t);
   }
 
   // A fragment pulls its shards out of the cloud, to places across it, in its reel's colours.
@@ -828,7 +849,7 @@ export class ReelFaceView {
   // Each layout as the head wears it now: the settled tiles, and any still arriving on top.
   updateAtlas(now) {
     this.arriving = this.arriving.filter((tile) => {
-      if (this.grown(tile, now) < 1) return true;
+      if (this.grown(tile, now) < 1 || (tile.liked && now - tile.arrived < 1000 * (this.info?.liked_pulse ?? 1.6))) return true;
       const layer = this.layers[tile.layer];
       if (this.isVisible(tile)) drawTile(layer.settled.getContext('2d'), tile, 1);
       layer.dirty = true;
@@ -843,7 +864,7 @@ export class ReelFaceView {
       const ctx = layer.worn.getContext('2d');
       ctx.clearRect(0, 0, ATLAS, ATLAS);
       ctx.drawImage(layer.settled, 0, 0);
-      for (const tile of arriving) drawTile(ctx, tile, this.grown(tile, now));
+      for (const tile of arriving) drawTile(ctx, tile, this.grown(tile, now), this.pulseOf(tile, now));
       this.upload(layer.texture, layer.worn, true);
       layer.dirty = false;
     }
@@ -1331,7 +1352,9 @@ export class ReelFaceView {
     const values = this.stage.look?.values ?? {};
     const at = Math.min(1, Math.max(0, this.formation ?? 0));
     const now = {};
-    for (const [name, [start, full]] of Object.entries(values)) now[name] = start + (full - start) * at;
+    for (const [name, [start, full]] of Object.entries(values)) if (!name.includes('/')) now[name] = start + (full - start) * at;
+    // Each category the visit has watched pushes the look, as far as its share of it (look.py).
+    if (this.stage.look) pushedValues(now, this.stage.look, at, this.info?.categories);
     // The climax: the damage clears as the face becomes the person, then everything breaks at once.
     const { clear, breaking } = this.climaxNow(performance.now());
     if (clear > 0) {
@@ -1708,8 +1731,9 @@ function coloursOf(picture) {
 }
 
 // A tile onto its layout, as far as it has grown (0 to 1), cut to its torn outline: the
-// outline spreads out from its middle over its picture, with a bright pulse that fades.
-function drawTile(ctx, tile, grown) {
+// outline spreads out from its middle over its picture, with a bright pulse that fades;
+// its category's material on it; a liked one beating as it lands (pulse 0-1).
+export function drawTile(ctx, tile, grown, pulse = 0) {
   const spread = Math.sqrt(Math.min(1, Math.max(0, grown)));  // its area grows with each shard
   if (spread <= 0) return;
   const [x, y, size] = tile.rect.map((v) => v * ATLAS);
@@ -1722,11 +1746,135 @@ function drawTile(ctx, tile, grown) {
     ctx.clip();
   }
   ctx.drawImage(tile.picture, x, y, size, size);
+  if (tile.material) applyMaterial(ctx, tile, x, y, size);
   if (spread < 1) {
     ctx.globalCompositeOperation = 'lighter';
     ctx.globalAlpha = 0.6 * (1 - spread);
     ctx.fillStyle = '#ffffff';
     ctx.fillRect(x, y, size, size);
+  }
+  if (pulse > 0) {
+    // A liked fragment: a hot glow over it and a bright rim, beating.
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.globalAlpha = 0.55 * pulse;
+    ctx.fillStyle = '#ff3b5c';
+    ctx.fillRect(x, y, size, size);
+    if (tile.outline?.length > 2) {
+      ctx.beginPath();
+      for (const [u, v] of tile.outline) ctx.lineTo((middleU + (u - middleU) * spread) * ATLAS, (middleV + (v - middleV) * spread) * ATLAS);
+      ctx.closePath();
+      ctx.globalAlpha = Math.min(1, 1.2 * pulse);
+      ctx.strokeStyle = '#ffffff';
+      ctx.lineWidth = 3 + 6 * pulse;
+      ctx.stroke();
+    }
+  }
+  ctx.restore();
+}
+
+// A category's material over a tile just drawn (inside its outline): made from
+// the tile's own picture, redrawn through filters and blends, so it stays the reel.
+function applyMaterial(ctx, tile, x, y, size) {
+  const { kind } = tile.material;
+  const amount = Math.min(1, Math.max(0, tile.material.amount));
+  if (amount <= 0) return;
+  const n = tile.number ?? 0;
+  const again = (filter, alpha, operation = 'source-over') => {
+    ctx.filter = filter;
+    ctx.globalAlpha = alpha;
+    ctx.globalCompositeOperation = operation;
+    ctx.drawImage(tile.picture, x, y, size, size);
+    ctx.filter = 'none';
+  };
+  const fill = (style, alpha, operation) => {
+    ctx.globalAlpha = alpha;
+    ctx.globalCompositeOperation = operation;
+    ctx.fillStyle = style;
+    ctx.fillRect(x, y, size, size);
+  };
+  const spot = (u, v, radius, colour, alpha) => {
+    const glow = ctx.createRadialGradient(x + u * size, y + v * size, 0, x + u * size, y + v * size, radius * size);
+    glow.addColorStop(0, colour);
+    glow.addColorStop(1, 'rgba(255, 255, 255, 0)');
+    fill(glow, alpha, 'screen');
+  };
+  ctx.save();
+  switch (kind) {
+    case 'gloss': // wet, swollen: richer colour, slick highlights
+      again('saturate(1.7) contrast(1.15)', amount);
+      for (let i = 0; i < 4; i++) spot(0.25 + 0.5 * random(n + i), 0.25 + 0.5 * random(n + i + 7), 0.05 + 0.08 * random(n + i + 3), '#ffffff', 0.9 * amount);
+      break;
+    case 'porcelain': // over-smoothed, filtered, pale
+      again('blur(3px) brightness(1.18) saturate(0.55)', amount);
+      spot(0.35, 0.3, 0.6, 'rgba(255, 244, 236, 0.9)', 0.45 * amount);
+      break;
+    case 'gold': { // gold leaf: the picture's light and dark in gold, a cold sheen
+      again('grayscale(1) contrast(1.35) brightness(1.05)', amount);
+      const leaf = ctx.createLinearGradient(x, y, x + size, y + size);
+      leaf.addColorStop(0, '#6e4f12');
+      leaf.addColorStop(0.45, '#f6d66b');
+      leaf.addColorStop(0.55, '#fff3c4');
+      leaf.addColorStop(1, '#8a6618');
+      fill(leaf, 0.85 * amount, 'color');
+      fill(leaf, 0.35 * amount, 'overlay');
+      break;
+    }
+    case 'deepfried': // a meme saved a hundred times: blown out, orange, crunchy
+      again('saturate(3.2) contrast(2) brightness(1.1)', amount);
+      fill('#ff7a00', 0.35 * amount, 'overlay');
+      break;
+    case 'glassy': // big glassy eyes: soft, wet, a hard highlight
+      again('blur(1.5px) brightness(1.12) saturate(1.3)', amount);
+      spot(0.32, 0.3, 0.14, '#ffffff', amount);
+      spot(0.62, 0.62, 0.07, '#ffffff', 0.7 * amount);
+      fill('#7fd8ff', 0.18 * amount, 'soft-light');
+      break;
+    case 'tight': { // tightened: hard contrast, pulled into rows
+      again('contrast(2) grayscale(0.6)', amount);
+      ctx.globalCompositeOperation = 'multiply';
+      ctx.globalAlpha = 0.35 * amount;
+      ctx.fillStyle = '#000000';
+      for (let row = y; row < y + size; row += 6) ctx.fillRect(x, row, size, 2);
+      break;
+    }
+    case 'cracked': { // feverish red, split by cracks
+      fill('#d4202a', 0.55 * amount, 'multiply');
+      ctx.globalCompositeOperation = 'source-over';
+      ctx.globalAlpha = 0.85 * amount;
+      ctx.strokeStyle = '#1a0004';
+      ctx.lineWidth = Math.max(1, size / 140);
+      for (let crack = 0; crack < 3; crack++) {
+        ctx.beginPath();
+        let u = random(n + crack * 13), v = random(n + crack * 17);
+        ctx.moveTo(x + u * size, y + v * size);
+        for (let step = 0; step < 6; step++) {
+          u += (random(n + crack * 31 + step) - 0.5) * 0.35;
+          v += (random(n + crack * 37 + step) - 0.5) * 0.35;
+          ctx.lineTo(x + u * size, y + v * size);
+        }
+        ctx.stroke();
+      }
+      break;
+    }
+    case 'sunset': { // a holiday's sky bleeding into the skin
+      const sky = ctx.createLinearGradient(x, y, x, y + size);
+      sky.addColorStop(0, '#ff9a3c');
+      sky.addColorStop(0.5, '#ff3d7f');
+      sky.addColorStop(1, '#4b2c9a');
+      again('saturate(2)', 0.6 * amount);
+      fill(sky, 0.6 * amount, 'color');
+      break;
+    }
+    case 'smear': // music: the picture smeared sideways, its colours split
+      for (let k = 1; k <= 4; k++) {
+        ctx.globalAlpha = 0.22 * amount;
+        ctx.globalCompositeOperation = 'source-over';
+        ctx.drawImage(tile.picture, x + k * size * 0.04, y, size, size);
+      }
+      again('hue-rotate(90deg) saturate(2)', 0.25 * amount, 'lighter');
+      break;
+    default:
+      break;
   }
   ctx.restore();
 }
