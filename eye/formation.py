@@ -19,6 +19,13 @@ measured in face heights, so pieces keep their shape wherever they land, and a
 patch for each ear. The eye doesn't know where anyone's hair is, so they're
 scattered round the face until it's covered, and each screen shows only the
 ones that land on the hair and ears it finds (segmenter.js, reelface.js).
+
+A reel's category (the classifier's) claims regions of the face (look.py,
+config.yaml category_looks): a share of its pieces land there, so the face
+fills with what the visitor watched, in places that say what it was. A liked
+reel's pieces all land there, bigger and less damaged. Each piece carries its
+category and whether it was liked, for the screens to give it its material and
+a pulse (reelface.js).
 """
 
 from __future__ import annotations
@@ -55,6 +62,17 @@ FEATURES = [
     [1, 2, 98, 327, 168, 6, 197, 195, 5, 4, 45, 275, 64, 294],                             # the nose
     [61, 146, 91, 181, 84, 17, 314, 405, 321, 375, 291, 409, 270, 269, 267, 0, 37, 39, 40, 185],  # the mouth
 ]
+# The regions a category can claim, as outlines by landmark number (each filled as its convex hull);
+# skin is the face but its features, whole the whole face; jaw is cut back from the mouth.
+REGION_OUTLINES = {
+    "eyes": [FEATURES[0], FEATURES[1]],
+    "brows": [FEATURES[2], FEATURES[3]],
+    "nose": [FEATURES[4]],
+    "mouth": [FEATURES[5]],
+    "forehead": [[54, 103, 67, 109, 10, 338, 297, 332, 284, 300, 293, 334, 296, 336, 9, 107, 66, 105, 63, 70]],
+    "cheeks": [[116, 117, 118, 119, 100, 36, 205, 187, 123, 50, 101], [345, 346, 347, 348, 329, 266, 425, 411, 352, 280, 330]],
+    "jaw": [[58, 172, 136, 150, 149, 176, 148, 152, 377, 400, 378, 379, 365, 397, 288]],
+}
 
 
 @dataclass
@@ -66,6 +84,8 @@ class Tile:
     jpeg: bytes       # its piece of a still
     due: float = 0.0  # when it's shown (monotonic seconds)
     layer: str = "face"  # the layout it's on: face, or head (the hair and ears)
+    category: str | None = None  # its reel's category, if known (its material on the screens)
+    liked: bool = False  # its reel was liked: it lands with a pulse
 
 
 def _layout_places() -> dict:
@@ -126,13 +146,31 @@ class FaceMap:
             hull = cv2.convexHull((np.array([place_of[p] for p in feature]) * GRID).astype(np.int32))
             cv2.fillConvexPoly(self.features, hull, 1)
         self.features = cv2.dilate(self.features, np.ones((3, 3), np.uint8)).astype(bool)
+        self.regions = {"skin": self.face & ~self.features, "whole": self.face.copy()}
+        for name, outlines in REGION_OUTLINES.items():
+            region = np.zeros((GRID, GRID), np.uint8)
+            for outline in outlines:
+                hull = cv2.convexHull((np.array([place_of[p] for p in outline]) * GRID).astype(np.int32))
+                cv2.fillConvexPoly(region, hull, 1)
+            self.regions[name] = cv2.dilate(region, np.ones((3, 3), np.uint8)).astype(bool) & self.face
+        self.regions["jaw"] &= ~cv2.dilate(self.regions["mouth"].astype(np.uint8), np.ones((3, 3), np.uint8)).astype(bool)
+
+    def region(self, names: list) -> np.ndarray | None:
+        """The union of these regions (None if there are none)."""
+        if not names:
+            return None
+        union = np.zeros((GRID, GRID), bool)
+        for name in names:
+            union |= self.regions.get(name, False)
+        return union if union.any() else None
 
 
 class Planner:
     """Breaks each reel into fragments of the face, reel by reel."""
 
-    def __init__(self, settings: dict, face_map: FaceMap, seed: int) -> None:
+    def __init__(self, settings: dict, face_map: FaceMap, seed: int, categories: dict | None = None) -> None:
         self.settings = settings
+        self.categories = categories or {}  # config.yaml's category_looks: region_share, liked
         self.map = face_map
         self.random = np.random.default_rng(seed)
         self.cover = np.zeros((GRID, GRID), np.float32)  # how many pieces have landed on each part of the face
@@ -149,32 +187,48 @@ class Planner:
         """The share of the face at least one piece has landed on."""
         return float((self.cover[self.map.face] > 0).mean())
 
-    def plan(self, reel: ReelRecord, settings: dict) -> list:
-        """This reel's fragments: their places, edges and pictures (numbers and times come later)."""
+    def plan(self, reel: ReelRecord, settings: dict, category: str | None = None, liked: bool = False,
+             shares: dict | None = None) -> list:
+        """This reel's fragments: their places, edges and pictures (numbers and times come later).
+        category: the classifier's, if known; liked: the visitor liked it; shares: each category's share of the visit."""
         self.reels += 1
         self.watched += reel.watched
         at = self.progress
         stills = [cv2.imdecode(np.frombuffer(jpeg, np.uint8), cv2.IMREAD_COLOR) for jpeg in reel.stills]
         stills = [still for still in stills if still is not None] or [_colour_tile(reel.colour, self.random)]
-        count = max(1, round(look.value(settings, "fragments", at) * self.random.uniform(0.75, 1.25)))
-        size = look.value(settings, "fragment_size", at)
-        jagged = look.value(settings, "jagged", at)
-        jpeg, bleed = look.value(settings, "jpeg", at), look.value(settings, "bleed", at)
+        count = max(1, round(look.value(settings, "fragments", at, shares) * self.random.uniform(0.75, 1.25)))
+        size = look.value(settings, "fragment_size", at, shares)
+        jagged = look.value(settings, "jagged", at, shares)
+        jpeg, bleed = look.value(settings, "jpeg", at, shares), look.value(settings, "bleed", at, shares)
+        region = self.map.region((settings.get("categories") or {}).get(category, {}).get("regions", [])) if category else None
+        region_share = self.categories.get("region_share", 0.0)
+        if liked:
+            liked_settings = self.categories.get("liked", {})
+            region_share = liked_settings.get("region_share", 1.0)
+            size *= liked_settings.get("size", 1.0)
+            jpeg *= liked_settings.get("damage", 1.0)
+            bleed *= liked_settings.get("damage", 1.0)
+        # A piece in the regions fits them: no bigger than a few times their own radius.
+        fits = math.sqrt(region.sum() / math.pi) / GRID * self.categories.get("region_fit", 1.5) if region is not None else 1.0
         tiles = []
         for _ in range(count):
-            centre = self._where(at)
+            in_region = region is not None and self.random.uniform() < region_share
+            centre = _least_covered(region.astype(np.float32), self.cover, self.random) if in_region else self._where(at)
             radius = size / 2 * self.random.uniform(0.6, 1.4)
+            if in_region:
+                radius = min(radius, fits)
             outline = self._torn(centre, radius, jagged)
             side = radius * 4  # room for the torn outline at its widest
             rect = (centre[0] - side / 2, centre[1] - side / 2, side)
             still = stills[int(self.random.integers(len(stills)))]
-            tiles.append(Tile(0, reel.number, rect, outline, self._piece(still, side, jpeg, bleed)))
+            tiles.append(Tile(0, reel.number, rect, outline, self._piece(still, side, jpeg, bleed), category=category, liked=liked))
             self._land(self.cover, centre, radius)
-        tiles += self._plan_head(reel, stills, settings, at, jagged, jpeg, bleed)
+        tiles += self._plan_head(reel, stills, settings, at, jagged, jpeg, bleed, category, liked)
         self.random.shuffle(tiles)  # the face and its hair form together
         return tiles
 
-    def _plan_head(self, reel: ReelRecord, stills: list, settings: dict, at: float, jagged: float, jpeg: float, bleed: float) -> list:
+    def _plan_head(self, reel: ReelRecord, stills: list, settings: dict, at: float, jagged: float, jpeg: float, bleed: float,
+                   category: str | None = None, liked: bool = False) -> list:
         """This reel's pieces for the hair and ears, on the head layout."""
         if max(settings["values"]["hair"]) <= 0:
             return []  # switched off
@@ -193,7 +247,8 @@ class Planner:
             rect = (centre[0] - side / 2, centre[1] - side / 2, side)
             still = stills[int(self.random.integers(len(stills)))]
             piece = self._piece(still, side, jpeg, bleed)
-            tiles.append(Tile(0, reel.number, rect, self._torn(centre, radius, jagged), piece, layer="head"))
+            tiles.append(Tile(0, reel.number, rect, self._torn(centre, radius, jagged), piece, layer="head",
+                              category=category, liked=liked))
             self._land(self.head_cover, centre, radius)
         return tiles
 
