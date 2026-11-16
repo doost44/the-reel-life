@@ -81,6 +81,13 @@ const SHARD_POINTS = 9; // points round a shard's torn edge
 const ORACLE_LETTER_MS = 88; // roughly how long the oracle's voice takes over a letter
 // Everything that breaks the picture, which clears as the face becomes the person.
 const DAMAGE = ['melt', 'flow', 'mosh', 'jpeg', 'stretch', 'bleed', 'gloss', 'heat', 'flush', 'fracture', 'holes', 'drip', 'faint'];
+// The middle of each region a category can claim, on the face layout (formation.py's REGION_OUTLINES):
+// what its shards are drawn to. Pairs (eyes, brows, cheeks) have one each side.
+const REGION_ANCHORS = {
+  eyes: [[0.352, 0.383], [0.649, 0.384]], brows: [[0.348, 0.291], [0.654, 0.29]], cheeks: [[0.271, 0.512], [0.73, 0.512]],
+  forehead: [[0.501, 0.225]], nose: [[0.497, 0.499]], mouth: [[0.501, 0.695]], jaw: [[0.5, 0.818]],
+  skin: [[0.499, 0.539]], whole: [[0.499, 0.516]],
+};
 const REBUILD_AFTER = 120; // ms after a burst of tiles (or a scrub) before the face is redrawn, once
 const DECODE_AT_ONCE = 24; // tile pictures decoded together while redrawing
 
@@ -1248,6 +1255,7 @@ export class ReelFaceView {
     const triangles = mesh.count / 3;
     if (!this.middles) {
       this.middles = new Float32Array(triangles * 2);
+      this.anchorGoals = null; // the categories' anchors are found afresh on this mesh
       for (let t = 0; t < triangles; t++) {
         this.middles[t * 2] = (layout.atlas[t * 6] + layout.atlas[t * 6 + 2] + layout.atlas[t * 6 + 4]) / 3;
         this.middles[t * 2 + 1] = (layout.atlas[t * 6 + 1] + layout.atlas[t * 6 + 3] + layout.atlas[t * 6 + 5]) / 3;
@@ -1481,7 +1489,38 @@ export class ReelFaceView {
       shedRate: hasFace && !clear ? (20 + 110 * formed) * (look.energy_shed ?? 1) : 0,
       place: this.somewhereOnTheFace,
       palette: this.reelColours,
+      ...this.shardTraits(hasFace),
     }, this.locate);
+  }
+
+  // The visit's categories as the shards' personalities: each with its behaviour, how strongly, its share
+  // of the visit, and where its regions of the face are now; and how much of the cloud takes them on.
+  shardTraits(hasFace) {
+    const look = this.stage.look;
+    const shares = this.info?.categories ?? {};
+    const at = Math.min(1, Math.max(0, this.formation ?? 0));
+    const traits = [];
+    for (const [category, share] of Object.entries(shares)) {
+      const behaviour = look?.categories?.[category]?.shards;
+      const ramp = look?.values?.[`${category}/shards`];
+      if (!behaviour || behaviour === 'none' || !ramp || !(share > 0)) continue;
+      const anchors = [];
+      if (hasFace && this.mesh?.shaped && this.middles) {
+        for (const region of look.categories[category].regions ?? []) {
+          for (const [u, v] of REGION_ANCHORS[region] ?? []) {
+            const spot = [0, 0, 0];
+            this.anchorGoals ??= new Map();
+            const key = `${u},${v}`;
+            if (!this.anchorGoals.has(key)) this.anchorGoals.set(key, this.goalOn('face', u, v));
+            this.locate(...this.anchorGoals.get(key), spot);
+            anchors.push([spot[0], spot[1]]);
+          }
+        }
+      }
+      traits.push({ behaviour, amount: ramp[0] + (ramp[1] - ramp[0]) * at, share, anchors });
+    }
+    const [first, full] = this.info?.shards_coverage ?? [0.25, 1];
+    return { traits, coverage: first + (full - first) * at, beatBpm: this.info?.beat_bpm ?? 118 };
   }
 
   render(now, stage, hasFace) {
